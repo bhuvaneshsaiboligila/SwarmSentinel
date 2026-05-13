@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+
+# Data / Models
+*.pt
+*.pth
+*.pkl
+data/raw/
+data/processed/
+ml/checkpoints/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Benchmarks output
+benchmarks/results/*.json
+benchmarks/results/*.csv
+
+# Environment
+.env
+
+Append these lines to .gitignore:
+
+# Miniconda / system python artifacts
+*.egg-info/
+.pytest_cache/
+
+# Simulation outputs
+assets/*.gif
+assets/*.mp4
+
+# CLAUDE.md contains local paths — exclude from public repo
+CLAUDE.md
+
+# Test outputs
+tests/__pycache__/
+tests/env_check_output.txt
