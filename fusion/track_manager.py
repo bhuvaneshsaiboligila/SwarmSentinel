@@ -23,10 +23,15 @@ import numpy as np
 from fusion.kalman_filter import DroneKalmanFilter
 
 # A track is pruned after this many consecutive frames with no matching detection.
-MAX_MISSED = 5
+MAX_MISSED = 8
 
 # Maximum Euclidean distance (metres) to consider a detection a match for a track.
-ASSOC_THRESHOLD = 10.0
+ASSOC_THRESHOLD = 15.0
+
+# Tracks younger than this are excluded from the output list.
+# Optical false positives rarely survive 3 frames without another hit, so this
+# kills ghost tracks before they ever reach the caller.
+MIN_AGE = 3
 
 
 class Track:
@@ -155,6 +160,9 @@ class TrackManager:
 
         # ── Step 2 & 3: Associate radar detections ─────────────────────────────
         # Radar supplies [x, y, vx, vy] — position for association, full vector for update.
+        # ONLY radar spawns new tracks. Optical false-positive detections (which arrive
+        # every frame at ~fp_rate × n_alive) would otherwise create ghost tracks in
+        # empty canvas regions — radar has zero false positives so this is safe.
         radar_arr = np.asarray(radar_detections, dtype=float)
         if radar_arr.ndim == 1 and radar_arr.size > 0:
             radar_arr = radar_arr.reshape(1, -1)   # single detection edge-case
@@ -174,7 +182,8 @@ class TrackManager:
             self._spawn(x=det[0], y=det[1], vx=det[2], vy=det[3])
 
         # ── Step 2 & 3: Associate optical detections ───────────────────────────
-        # Optical supplies bbox [x_tl, y_tl, w, h] — convert to centre for association.
+        # Optical updates existing tracks only — it never spawns new ones.
+        # Unmatched optical detections (including false positives) are silently dropped.
         optical_centres = []
         for det in optical_detections:
             bbox = det["bbox"]
@@ -186,17 +195,16 @@ class TrackManager:
             (lambda t, pos=optical_centres[i]: t.update(pos, "optical"))
             for i in range(len(optical_centres))
         ]
-        optical_unmatched_idx = self._associate(optical_centres, optical_update_fns)
-
-        # Unmatched optical detections → spawn new tracks (no velocity seed)
-        for i in optical_unmatched_idx:
-            pos = optical_centres[i]
-            self._spawn(x=pos[0], y=pos[1])
+        self._associate(optical_centres, optical_update_fns)   # unmatched index ignored
 
         # ── Step 4: Prune dead tracks ──────────────────────────────────────────
         self._tracks = [t for t in self._tracks if not t.is_dead()]
 
-        # ── Return current snapshot ────────────────────────────────────────────
+        # ── Return confirmed tracks only ───────────────────────────────────────
+        # Tracks younger than MIN_AGE are still in self._tracks (kept alive so
+        # they can accumulate hits) but are hidden from the caller. This prevents
+        # optical false-positive ghosts from appearing in the output — they
+        # rarely survive long enough to be confirmed.
         return [
             {
                 "track_id":      t.track_id,
@@ -206,6 +214,7 @@ class TrackManager:
                 "missed_frames": t.missed_frames,
             }
             for t in self._tracks
+            if t.age >= MIN_AGE
         ]
 
     # ── Internal helpers ───────────────────────────────────────────────────────

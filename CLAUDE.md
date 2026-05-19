@@ -117,7 +117,7 @@ Empty package initializer.
 1. **Swarm does not propagate bounds to Drone.** `spawn_area` must always equal `(100, 100)` or any area ≤ 100 on both axes. Any larger area causes silent wrap-to-[0,100) at the first `update()` call.
 2. **OpticalSensor default area mismatch.** Constructor defaults to `area=(500,500)` but the simulation uses `(100,100)`. Always pass `area=AREA` explicitly at construction.
 3. **`python fusion/file.py` requires sys.path fix.** Running any fusion script with `python fusion/file.py` puts `fusion/` (not the project root) in `sys.path[0]`, breaking `from fusion.* import`. Fixed in `track_manager.py` and `run_fusion.py` via `sys.path.insert(0, project_root)` guarded by `if __name__ == "__main__"`. Same applies to `simulator/run_simulation.py`.
-4. **Track count inflates above drone count.** Optical false positives (~1 per step at fp_rate=0.1, 25 drones) that fall > 10 m from any existing track spawn new tracks. They die after 5 missed frames, so the steady-state excess is ≤ 5 phantom tracks. Intentional for now; a confirmation gate (require N hits before promoting a track) would fix it.
+4. **Track count inflated to 30+ tracks for 25 drones — fixed.** Root cause: optical false positives (~2–3 per frame, fp_rate=0.1, 25 drones) landed in empty canvas regions and spawned ghost tracks that aged past the min_age gate by absorbing subsequent FPs through the wide association gate. Fix: optical detections now only UPDATE existing tracks, never spawn new ones. Only radar spawns (radar has 0% FP rate). Result: steady-state output is exactly 25 tracks.
 5. **`--save` flag requires an explicit PATH.** `python fusion/run_fusion.py --save` without a path raises argparse error. Must pass full path: `python fusion/run_fusion.py --save assets/phase2_fusion_demo.gif`.
 6. **GIFs and CLAUDE.md are gitignored.** `.gitignore` excludes `assets/*.gif` and `CLAUDE.md`. Force-add with `git add -f <file>` when committing these.
 
@@ -159,9 +159,13 @@ Phase 2 — EKF (`fusion/ekf.py`) and fusion error benchmark (1 vs 2 vs 3 sensor
   - R matrices matched to sensor noise σ values in `sensors/radar.py` / `sensors/optical.py`
   - Optical update uses raw Kalman equations (not filterpy's kf.update) — filterpy validates dim_z at call time and rejects shape (2,) when dim_z=4
 - [x] Multi-target track manager — `fusion/track_manager.py`
-  - `distance_threshold = 10.0` m (Euclidean, greedy nearest-neighbour)
-  - `max_missed = 5` frames before a track is pruned
-  - Radar detections seed new tracks with velocity; optical seeds with vx=vy=0
+  - `ASSOC_THRESHOLD = 15.0` m (Euclidean, greedy nearest-neighbour) — tuning param
+  - `MAX_MISSED = 8` frames before a track is pruned — tuning param
+  - `MIN_AGE = 3` frames before a track appears in output — kills transient ghosts — tuning param
+  - **Only radar spawns new tracks; optical only updates existing tracks.**
+    Optical FPs (≈2–3 per frame) in empty canvas regions were creating ghost tracks.
+    Radar has 0% false-positive rate so radar-only spawning eliminates this entirely.
+  - Result: steady-state output = exactly 25 tracks for 25 drones (mean=25.0, min=25, max=25)
   - RF accepted in signature but unused — signal strength carries no position info
 - [x] Fusion pipeline (sensors → TrackManager) — `fusion/fusion_pipeline.py`
   - Derives `area` from `swarm.drones[0].bounds` to fix OpticalSensor FP placement
