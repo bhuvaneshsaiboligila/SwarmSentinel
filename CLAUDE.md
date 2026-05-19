@@ -77,9 +77,10 @@ Empty package initializer. No content needed.
 - **Known issue**: `_spawn_drones` does not pass `bounds=` to `Drone`; drones always wrap at 100.0 regardless of `spawn_area`. `spawn_area` must therefore always be `(100, 100)` or smaller, otherwise drones immediately wrap to [0, 100) and the visualization axis will be wrong.
 
 ### simulator/behaviors.py
-Three standalone pure-NumPy functions. Complete.
+Four standalone pure-NumPy functions. Complete.
 - `random_forces(positions, velocities, n)` → (n, 2): Gaussian noise σ=0.5
 - `flock_forces(positions, velocities, n, sep_radius, align_radius, cohesion_radius, w_sep=1.5, w_align=1.0, w_cohesion=1.0)` → (n, 2): vectorised Boids — builds (N,N,2) diff tensor, reuses it for all three rules
+- `boundary_forces(positions, bounds, margin=20.0)` → (n, 2): linear wall-repulsion force away from each arena edge
 - `attack_forces(positions, target, n, max_force)` → (n, 2): unit-vector steering capped at max_force
 
 ### simulator/run_simulation.py
@@ -119,11 +120,11 @@ Empty package initializer.
 3. **`python fusion/file.py` requires sys.path fix.** Running any fusion script with `python fusion/file.py` puts `fusion/` (not the project root) in `sys.path[0]`, breaking `from fusion.* import`. Fixed in `track_manager.py` and `run_fusion.py` via `sys.path.insert(0, project_root)` guarded by `if __name__ == "__main__"`. Same applies to `simulator/run_simulation.py`.
 4. **Track count inflated to 30+ tracks for 25 drones — fixed.** Root cause: optical false positives (~2–3 per frame, fp_rate=0.1, 25 drones) landed in empty canvas regions and spawned ghost tracks that aged past the min_age gate by absorbing subsequent FPs through the wide association gate. Fix: optical detections now only UPDATE existing tracks, never spawn new ones. Only radar spawns (radar has 0% FP rate). Result: steady-state output is exactly 25 tracks.
 5. **`--save` flag requires an explicit PATH.** `python fusion/run_fusion.py --save` without a path raises argparse error. Must pass full path: `python fusion/run_fusion.py --save assets/phase2_fusion_demo.gif`.
-6. **GIFs and CLAUDE.md are gitignored.** `.gitignore` excludes `assets/*.gif` and `CLAUDE.md`. Force-add with `git add -f <file>` when committing these.
+6. **Ignored-vs-tracked asset rules are inconsistent.** `.gitignore` excludes new `assets/*.gif` files and also lists `CLAUDE.md`, but `CLAUDE.md` and `assets/phase2_fusion_demo.gif` are already tracked. In practice: `assets/phase1_demo.gif` is still ignored/untracked; tracked files continue to update normally; any brand-new GIF still needs `git add -f`.
 
 ---
 
-## Last Completed Milestone
+## Last Tagged Milestone
 v0.1 — Phase 1 complete. env_check passes (Python 3.13.11, NumPy 2.4.4, Matplotlib 3.10.9). run_simulation.py constants fixed to safe values (N=25, 15fps, 200 frames, 1 subplot). README updated with GIF embed, running instructions, sensor model descriptions, Phase 1 marked Complete.
 
 ## Last Working Demo
@@ -140,7 +141,7 @@ Phase 2 — EKF (`fusion/ekf.py`) and fusion error benchmark (1 vs 2 vs 3 sensor
 - [x] drone.py with bounds wrapping + max_speed clamp
 - [x] swarm.py with real flock + attack behaviors
 - [x] behaviors.py standalone vectorised functions
-- [x] run_simulation.py safe for hardware (validated at 25 drones, 15 fps, 1 subplot, 100 frames)
+- [x] run_simulation.py safe for hardware (validated at 25 drones, 15 fps, 1 subplot, 200 frames)
 - [x] sensors/radar.py
 - [x] sensors/optical.py
 - [x] sensors/rf.py
