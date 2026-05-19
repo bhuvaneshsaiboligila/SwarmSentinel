@@ -116,14 +116,21 @@ Empty package initializer.
 
 1. **Swarm does not propagate bounds to Drone.** `spawn_area` must always equal `(100, 100)` or any area ≤ 100 on both axes. Any larger area causes silent wrap-to-[0,100) at the first `update()` call.
 2. **OpticalSensor default area mismatch.** Constructor defaults to `area=(500,500)` but the simulation uses `(100,100)`. Always pass `area=AREA` explicitly at construction.
+3. **`python fusion/file.py` requires sys.path fix.** Running any fusion script with `python fusion/file.py` puts `fusion/` (not the project root) in `sys.path[0]`, breaking `from fusion.* import`. Fixed in `track_manager.py` and `run_fusion.py` via `sys.path.insert(0, project_root)` guarded by `if __name__ == "__main__"`. Same applies to `simulator/run_simulation.py`.
+4. **Track count inflates above drone count.** Optical false positives (~1 per step at fp_rate=0.1, 25 drones) that fall > 10 m from any existing track spawn new tracks. They die after 5 missed frames, so the steady-state excess is ≤ 5 phantom tracks. Intentional for now; a confirmation gate (require N hits before promoting a track) would fix it.
+5. **`--save` flag requires an explicit PATH.** `python fusion/run_fusion.py --save` without a path raises argparse error. Must pass full path: `python fusion/run_fusion.py --save assets/phase2_fusion_demo.gif`.
+6. **GIFs and CLAUDE.md are gitignored.** `.gitignore` excludes `assets/*.gif` and `CLAUDE.md`. Force-add with `git add -f <file>` when committing these.
 
 ---
 
 ## Last Completed Milestone
 v0.1 — Phase 1 complete. env_check passes (Python 3.13.11, NumPy 2.4.4, Matplotlib 3.10.9). run_simulation.py constants fixed to safe values (N=25, 15fps, 200 frames, 1 subplot). README updated with GIF embed, running instructions, sensor model descriptions, Phase 1 marked Complete.
 
+## Last Working Demo
+`assets/phase2_fusion_demo.gif` — 150 frames, 15 fps, 1200×600 px, 2.1 MB. Two-subplot animation: raw sensor detections (left) vs. fused Kalman tracks (right). 25 drones, flock behavior.
+
 ## Next Task
-Phase 2 Week 7 — Kalman Filter single target tracking
+Phase 2 — EKF (`fusion/ekf.py`) and fusion error benchmark (1 vs 2 vs 3 sensors)
 
 ---
 
@@ -143,16 +150,26 @@ Phase 2 Week 7 — Kalman Filter single target tracking
 
 ---
 
-## Phase 2 Progress (Weeks 7–12)
+## Phase 2 Progress (Weeks 7–12) — IN PROGRESS
 
 - [x] Basic Kalman filter (`DroneKalmanFilter`) implemented — `fusion/kalman_filter.py`
   - State vector: `[x, y, vx, vy]` (4D)
   - Measurement modes: radar (4D: x, y, vx, vy) and optical (2D: x, y only)
   - Motion model: constant velocity with discrete white-noise acceleration Q
   - R matrices matched to sensor noise σ values in `sensors/radar.py` / `sensors/optical.py`
+  - Optical update uses raw Kalman equations (not filterpy's kf.update) — filterpy validates dim_z at call time and rejects shape (2,) when dim_z=4
+- [x] Multi-target track manager — `fusion/track_manager.py`
+  - `distance_threshold = 10.0` m (Euclidean, greedy nearest-neighbour)
+  - `max_missed = 5` frames before a track is pruned
+  - Radar detections seed new tracks with velocity; optical seeds with vx=vy=0
+  - RF accepted in signature but unused — signal strength carries no position info
+- [x] Fusion pipeline (sensors → TrackManager) — `fusion/fusion_pipeline.py`
+  - Derives `area` from `swarm.drones[0].bounds` to fix OpticalSensor FP placement
+- [x] Side-by-side visualisation — `fusion/run_fusion.py`
+  - 2 subplots, 25 drones, 15 fps, 150 frames (all within hardware limits)
+  - RF shown as text count (not dots) — no spatial position output from RFSensor
+  - `--save PATH` writes GIF via PillowWriter; `--save` alone requires explicit PATH
+  - `run_fusion.py` wires sensors + TrackManager directly (does not use FusionPipeline class)
 - [ ] EKF for nonlinear motion — `fusion/ekf.py`
-- [ ] Multi-target track manager — `fusion/track_manager.py`
-- [ ] Fusion pipeline (sensors in → tracks out) — `fusion/fusion_pipeline.py`
-- [ ] Side-by-side visualisation: raw sensor data vs. fused track
-- [ ] Fusion error benchmark (1, 2, 3 sensors)
+- [ ] Fusion error benchmark (1, 2, 3 sensors) — `benchmarks/`
 - [ ] git tag v0.2
