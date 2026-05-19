@@ -174,6 +174,12 @@ Phase 2 — EKF (`fusion/ekf.py`) and fusion error benchmark (1 vs 2 vs 3 sensor
   - RF shown as text count (not dots) — no spatial position output from RFSensor
   - `--save PATH` writes GIF via PillowWriter; `--save` alone requires explicit PATH
   - `run_fusion.py` wires sensors + TrackManager directly (does not use FusionPipeline class)
-- [ ] EKF for nonlinear motion — `fusion/ekf.py`
-- [ ] Fusion error benchmark (1, 2, 3 sensors) — `benchmarks/`
+- [x] EKF stub — `fusion/ekf.py`
+  - `DroneEKF` class, identical interface to `DroneKalmanFilter` (drop-in swap)
+  - Currently uses linear constant-velocity model — reduces to standard KF
+  - TODO: replace with constant-turn model (adds turn-rate state `omega`, trig f(x)) in Phase 2 week 2
+  - predict() sets F Jacobian fresh each call so nonlinear f(x) can be swapped in without restructuring
+- [x] Benchmark skeleton — `benchmarks/fusion_error.py`
+  - `benchmark_sensor_count(n_sensors: int) -> float` exists, returns `0.0` placeholder
+  - TODO: implement RMSE between fused tracks and ground truth; compare n_sensors = 1, 2, 3
 - [ ] git tag v0.2
