@@ -95,7 +95,7 @@ class Track:
         return self._kf.get_state()[:2]
 
     def get_state(self) -> np.ndarray:
-        """Return full state estimate as [x, y, vx, vy]."""
+        """Return full state estimate: [x, y, vx, vy] (KF) or [x, y, vx, vy, omega] (EKF)."""
         return self._kf.get_state()
 
     def is_dead(self) -> bool:
