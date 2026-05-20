@@ -7,8 +7,7 @@ and how many consecutive frames it has gone without a measurement.
 A TrackManager holds all active Tracks and runs one full predict-associate-
 update cycle per simulation step across radar and optical sensor streams.
 
-RF is accepted as a parameter for API completeness but not used for spatial
-association — signal strength alone carries no position information.
+RF deferred to Phase 3 — will weight threat score, not track state.
 """
 
 import sys
@@ -152,8 +151,7 @@ class TrackManager:
                                 False positives (drone_id=None) are treated
                                 identically — the manager has no ground truth.
             rf_detections     : (n,) float array of signal strengths.
-                                Accepted for API symmetry; not used for spatial
-                                association because signal strength has no position.
+                                RF deferred to Phase 3 — will weight threat score, not track state.
 
         Returns:
             List of state dicts for every active track:

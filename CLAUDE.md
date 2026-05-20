@@ -145,7 +145,7 @@ Empty package initializer.
 5. ~~**`--save` flag requires an explicit PATH.**~~ **FIXED.** `--save` is now a `metavar="PATH"` argument; argparse enforces the path is supplied.
 6. ~~**Ignored-vs-tracked asset rules are inconsistent.**~~ **FIXED.** `.gitignore` now has `!CLAUDE.md` and `!assets/*.gif` force-track rules; tracked GIFs update normally without `git add -f`.
 7. **TrackManager not using DroneEKF.** `TrackManager` still instantiates `DroneKalmanFilter`. `DroneEKF` is a drop-in replacement but has not been swapped in yet.
-8. **Benchmark 3-sensor result is misleading.** RF signals carry no position information and are ignored by TrackManager. The 3-sensor RMSE is therefore identical (or very close) to 2-sensor, which may suggest RF adds no value — but the real conclusion is that RF is not wired in.
+8. ~~**Benchmark 3-sensor result is misleading.**~~ **DEFERRED (not broken).** RF fusion into track state is intentionally deferred to Phase 3, where RF signal strength will weight threat scores rather than track positions. TrackManager uses RF channel count as a spawn cap (prevents ghost tracks); the benchmark correctly shows a small RMSE improvement (0.341 m vs 0.350 m) with 3 sensors.
 9. **Phase 2 demo GIF is stale.** `assets/phase2_fusion_demo.gif` was recorded before the ghost-track fix; it shows ~30 tracks instead of ~25. Needs to be re-recorded.
 
 ---
@@ -237,12 +237,12 @@ v0.1 — Phase 1 complete. env_check passes (Python 3.13.11, NumPy 2.4.4, Matplo
 - [x] Benchmark — `benchmarks/fusion_error.py`
   - Real RMSE implementation: Hungarian matching of confirmed tracks to ground truth over 200 steps
   - Compares n_sensors = 1 (radar), 2 (+optical), 3 (+RF)
-  - **Caveat: RF carries no position info and is not wired into TrackManager** — 3-sensor result is misleadingly close to 2-sensor
+  - RF deferred to Phase 3 (threat scoring); TrackManager uses RF channel count as a spawn cap — 3-sensor RMSE is 0.341 m vs 0.350 m for 2-sensor
 - [ ] git tag v0.2
 
 ### Phase 2 — What is NOT done
 
 - **TrackManager still uses `DroneKalmanFilter`** — `DroneEKF` is implemented but not yet plugged in; swap is a one-line change in `track_manager.py`
-- **RF not wired into TrackManager** — RF signals carry no position information; the 3-sensor benchmark result is misleading and should be documented or fixed
+- **RF fusion intentionally deferred to Phase 3** — will weight threat scores, not track state; spawn-cap use in TrackManager is its only Phase 2 role
 - **Phase 2 demo GIF is stale** — `assets/phase2_fusion_demo.gif` was recorded when track count was ~30; should show ~25 after the ghost-track fix
 - **v0.2 tag not yet applied**
