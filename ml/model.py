@@ -1,11 +1,11 @@
 """
 ml/model.py — SwarmClassifier: LSTM-based 3-class swarm threat classifier.
 
-Input : (batch, seq_len=20, features=4)  — centroid [x, y, vx, vy] per timestep
+Input : (batch, seq_len=20, features=8)  — [cx, cy, cvx, cvy, spread_x, spread_y, n_alive_norm, mean_speed]
 Output: (batch, 3)                        — raw logits for classes 0/1/2
 
 Architecture:
-  LSTM  : input_size=4, hidden_size=64, num_layers=2, batch_first=True, dropout=0.3
+  LSTM  : input_size=8, hidden_size=64, num_layers=2, batch_first=True, dropout=0.3
   Head  : Linear(64→32) → ReLU → Dropout(0.3) → Linear(32→3)
 
 Run from project root:
@@ -27,7 +27,7 @@ class SwarmClassifier(nn.Module):
     LSTM classifier for 3-class swarm threat recognition.
 
     Args:
-        input_size:  number of features per timestep (default 4: x, y, vx, vy)
+        input_size:  number of features per timestep (default 8: cx, cy, cvx, cvy, spread_x, spread_y, n_alive_norm, mean_speed)
         hidden_size: LSTM hidden units (default 64)
         num_layers:  stacked LSTM layers (default 2)
         n_classes:   output classes (default 3)
@@ -36,7 +36,7 @@ class SwarmClassifier(nn.Module):
 
     def __init__(
         self,
-        input_size: int = 4,
+        input_size: int = 8,
         hidden_size: int = 64,
         num_layers: int = 2,
         n_classes: int = 3,
@@ -76,7 +76,7 @@ if __name__ == "__main__":
     model = SwarmClassifier()
     model.eval()
 
-    batch = torch.randn(8, 20, 4)
+    batch = torch.randn(8, 20, 8)
     with torch.no_grad():
         logits = model(batch)
 

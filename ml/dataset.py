@@ -7,8 +7,9 @@ and radar sensor. Three classes:
   1 — swarm             (flock behavior,  n=15–25)
   2 — swarm attack      (attack behavior, n=15–25, target = arena centre)
 
-Each sample is a sequence of T timesteps; each timestep is the centroid of all
-radar-detected drone positions/velocities: [x, y, vx, vy].
+Each sample is a sequence of T timesteps; each timestep is an 8-dim feature vector:
+  [centroid_x, centroid_y, centroid_vx, centroid_vy,
+   spread_x, spread_y, n_alive_norm, mean_speed]
 
 Run from project root:
     python ml/dataset.py
@@ -42,15 +43,14 @@ class SyntheticSwarmDataset:
         area:                arena (width, height) in metres
 
     Attributes:
-        X: float32 numpy array, shape (N, T, 4) — centroid [x, y, vx, vy] per step
+        X: float32 numpy array, shape (N, T, 8) — feature vector per timestep
+           [cx, cy, cvx, cvy, spread_x, spread_y, n_alive_norm, mean_speed]
         y: int64   numpy array, shape (N,)       — class labels 0/1/2
-
-    __getitem__ returns torch tensors when torch is importable, numpy arrays otherwise.
     """
 
     def __init__(
         self,
-        n_samples_per_class: int = 100,
+        n_samples_per_class: int = 500,
         seq_len: int = 20,
         noise: bool = True,
         seed: int = 42,
@@ -75,7 +75,7 @@ class SyntheticSwarmDataset:
                 X_list.append(seq)
                 y_list.append(label)
 
-        self.X = np.array(X_list, dtype=np.float32)   # (N, T, 4)
+        self.X = np.array(X_list, dtype=np.float32)   # (N, T, 8)
         self.y = np.array(y_list, dtype=np.int64)      # (N,)
 
     # ── sequence generation ────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ class SyntheticSwarmDataset:
     def _generate_sequence(
         self, label: int, np_seed: int, rng: np.random.Generator
     ) -> np.ndarray:
-        """Simulate one scenario and return a (seq_len, 4) centroid trajectory."""
+        """Simulate one scenario and return a (seq_len, 8) feature trajectory."""
         # np_seed controls Swarm/Sensor internal randomness for this sample.
         np.random.seed(np_seed)
 
@@ -104,23 +104,54 @@ class SyntheticSwarmDataset:
         seq = []
         for _ in range(self.seq_len):
             swarm.step(_DT)
-            seq.append(self._centroid(swarm, radar))
+            seq.append(self._features(swarm, radar))
 
-        return np.array(seq, dtype=np.float32)  # (T, 4)
+        return np.array(seq, dtype=np.float32)  # (T, 8)
 
-    def _centroid(self, swarm: Swarm, radar) -> np.ndarray:
-        """Return [x, y, vx, vy] centroid: radar detections (noisy) or ground truth."""
-        if radar is not None:
-            det = radar.sense()          # (n_detected, 4): [x, y, vx, vy]
-            if det.shape[0] > 0:
-                return det.mean(axis=0).astype(np.float32)
-        # Fallback: ground-truth centroid (used when noise=False, or all detections dropped)
+    def _features(self, swarm: Swarm, radar) -> np.ndarray:
+        """Return 8-dim feature: [cx, cy, cvx, cvy, spread_x, spread_y, n_alive_norm, mean_speed].
+
+        Centroid (first 4): from radar detections when noise=True, else ground truth.
+        Structural features (last 4): always from ground truth — spread and n_alive are
+        not reliably recoverable from noisy radar alone, but they powerfully discriminate classes:
+          individual  → spread≈0, n_alive_norm≈0.04
+          flock       → spread>0, mean_speed low (drones average out)
+          attack      → spread shrinking, mean_speed rising toward target
+        """
         alive = [d for d in swarm.drones if d.alive]
+        n_alive = len(alive)
+
         if alive:
-            pos = np.mean([d.position for d in alive], axis=0)
-            vel = np.mean([d.velocity for d in alive], axis=0)
-            return np.concatenate([pos, vel]).astype(np.float32)
-        return np.zeros(4, dtype=np.float32)
+            positions  = np.array([d.position for d in alive])   # (n, 2)
+            velocities = np.array([d.velocity for d in alive])   # (n, 2)
+            spread_x   = float(positions[:, 0].std()) if n_alive > 1 else 0.0
+            spread_y   = float(positions[:, 1].std()) if n_alive > 1 else 0.0
+            mean_speed = float(np.sqrt((velocities ** 2).sum(axis=1)).mean())
+        else:
+            positions = velocities = None
+            spread_x = spread_y = mean_speed = 0.0
+
+        n_alive_norm = n_alive / 25.0
+
+        # Noisy centroid from radar; fall back to ground truth when radar misses everything
+        if radar is not None:
+            det = radar.sense()   # (n_detected, 4): [x, y, vx, vy]
+            if det.shape[0] > 0:
+                centroid = det.mean(axis=0)
+            elif positions is not None:
+                centroid = np.concatenate([positions.mean(axis=0), velocities.mean(axis=0)])
+            else:
+                centroid = np.zeros(4)
+        elif positions is not None:
+            centroid = np.concatenate([positions.mean(axis=0), velocities.mean(axis=0)])
+        else:
+            centroid = np.zeros(4)
+
+        return np.array(
+            [centroid[0], centroid[1], centroid[2], centroid[3],
+             spread_x, spread_y, n_alive_norm, mean_speed],
+            dtype=np.float32,
+        )
 
     # ── Dataset interface ──────────────────────────────────────────────────────
 
@@ -140,7 +171,7 @@ if __name__ == "__main__":
     print("Generating 30 samples (10 per class) …")
     ds = SyntheticSwarmDataset(n_samples_per_class=10, seq_len=20, noise=True, seed=0)
 
-    print(f"  X shape : {ds.X.shape}")          # expect (30, 20, 4)
+    print(f"  X shape : {ds.X.shape}")          # expect (30, 20, 8)
     print(f"  y shape : {ds.y.shape}")           # expect (30,)
     print(f"  X dtype : {ds.X.dtype}")
     print(f"  y dtype : {ds.y.dtype}")
@@ -149,20 +180,23 @@ if __name__ == "__main__":
 
     print()
     label_names = {0: "individual", 1: "swarm", 2: "attack"}
+    header = "  {:>12}  {:>6} {:>6} {:>6} {:>6}  {:>6} {:>6}  {:>5} {:>5}".format(
+        "class", "cx", "cy", "cvx", "cvy", "sx", "sy", "n", "spd"
+    )
+    print(header)
     for cls in range(3):
-        sample_idx = cls * 10          # first sample of each class
-        row = ds.X[sample_idx, 0]      # first timestep
-        print(f"  class={cls} ({label_names[cls]:<10})  "
-              f"t=0  x={row[0]:6.2f}  y={row[1]:6.2f}  "
-              f"vx={row[2]:5.2f}  vy={row[3]:5.2f}")
+        row = ds.X[cls * 10, 0]
+        print(f"  {cls} ({label_names[cls]:<10})  "
+              f"{row[0]:6.2f} {row[1]:6.2f} {row[2]:6.2f} {row[3]:6.2f}  "
+              f"{row[4]:6.2f} {row[5]:6.2f}  {row[6]:.3f} {row[7]:5.2f}")
 
     print()
     x0, y0 = ds[0]
     print(f"  __getitem__(0) → x type={type(x0).__name__} shape={x0.shape}, "
           f"y type={type(y0).__name__} value={y0}")
 
-    assert ds.X.shape == (30, 20, 4), f"Unexpected X shape: {ds.X.shape}"
+    assert ds.X.shape == (30, 20, 8), f"Unexpected X shape: {ds.X.shape}"
     assert ds.y.shape == (30,),       f"Unexpected y shape: {ds.y.shape}"
-    assert list(set(ds.y.tolist())) == [0, 1, 2] or set(ds.y.tolist()) == {0, 1, 2}
+    assert set(ds.y.tolist()) == {0, 1, 2}
     print()
     print("Smoke test passed.")
