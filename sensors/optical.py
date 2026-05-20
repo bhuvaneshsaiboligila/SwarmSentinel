@@ -19,7 +19,7 @@ class OpticalSensor:
         half_size: float = 5.0,
         miss_prob: float = 0.1,
         fp_rate: float = 0.1,
-        area: tuple = (500, 500),
+        area: tuple = (100, 100),
     ):
         self.swarm = swarm
         self.pos_sigma = pos_sigma
@@ -41,11 +41,14 @@ class OpticalSensor:
             noisy_pos   = positions + np.random.normal(0.0, self.pos_sigma, (n, 2))
             confidences = np.random.uniform(0.5, 1.0, size=n)
 
-            w = h = self.half_size * 2.0
             for pos, did, conf in zip(noisy_pos[keep], drone_ids[keep], confidences[keep]):
+                x1, y1 = pos[0] - self.half_size, pos[1] - self.half_size
+                x2, y2 = pos[0] + self.half_size, pos[1] + self.half_size
+                x1, x2 = np.clip([x1, x2], 0, self.area[0])
+                y1, y2 = np.clip([y1, y2], 0, self.area[1])
                 detections.append({
                     "drone_id":   int(did),
-                    "bbox":       [pos[0] - self.half_size, pos[1] - self.half_size, w, h],
+                    "bbox":       [x1, y1, x2 - x1, y2 - y1],
                     "confidence": float(conf),
                 })
 
@@ -55,9 +58,13 @@ class OpticalSensor:
                 fp_pos   = np.random.uniform([0.0, 0.0], self.area, size=(n_fp, 2))
                 fp_conf  = np.random.uniform(0.1, 0.5, size=n_fp)
                 for pos, conf in zip(fp_pos, fp_conf):
+                    x1, y1 = pos[0] - self.half_size, pos[1] - self.half_size
+                    x2, y2 = pos[0] + self.half_size, pos[1] + self.half_size
+                    x1, x2 = np.clip([x1, x2], 0, self.area[0])
+                    y1, y2 = np.clip([y1, y2], 0, self.area[1])
                     detections.append({
                         "drone_id":   None,
-                        "bbox":       [pos[0] - self.half_size, pos[1] - self.half_size, w, h],
+                        "bbox":       [x1, y1, x2 - x1, y2 - y1],
                         "confidence": float(conf),
                     })
 
