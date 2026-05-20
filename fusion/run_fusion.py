@@ -19,14 +19,14 @@ if __name__ == "__main__":
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import numpy as np
+import matplotlib
+if "--no-display" in sys.argv:
+    matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 from simulator.swarm import Swarm
-from sensors.radar import RadarSensor
-from sensors.optical import OpticalSensor
-from sensors.rf import RFSensor
-from fusion.track_manager import TrackManager
+from fusion.fusion_pipeline import FusionPipeline
 
 # ── Configuration (hardware-safe — see CLAUDE.md) ─────────────────────────────
 N_DRONES  = 25
@@ -49,14 +49,29 @@ if __name__ == "__main__":
         "--save", metavar="PATH", default=None,
         help="Save animation as GIF instead of opening a window",
     )
+    parser.add_argument(
+        "--frames",
+        type=int,
+        default=MAX_STEPS,
+        help="Number of animation frames (default: 150)",
+    )
+    parser.add_argument(
+        "--no-display",
+        action="store_true",
+        help="Headless mode (Agg backend, no window). For CI and smoke tests.",
+    )
     args = parser.parse_args()
 
     # ── Simulation objects ─────────────────────────────────────────────────────
-    swarm   = Swarm(n_drones=N_DRONES, spawn_area=AREA, behavior="flock")
-    radar   = RadarSensor(swarm)
-    optical = OpticalSensor(swarm, area=AREA)   # area= fixes known FP placement bug
-    rf      = RFSensor(swarm)
-    tm      = TrackManager(dt=DT)
+    swarm    = Swarm(n_drones=N_DRONES, spawn_area=AREA, behavior="flock")
+    pipeline = FusionPipeline(swarm, dt=DT)
+
+    if args.no_display and not args.save:
+        for _ in range(args.frames):
+            swarm.step(DT)
+            pipeline.step()
+        print("Headless run complete.")
+        sys.exit(0)
 
     # ── Figure: 2 subplots side by side (hardware limit: max 2) ───────────────
     fig, (ax_l, ax_r) = plt.subplots(1, 2, figsize=(12, 6))
@@ -115,13 +130,12 @@ if __name__ == "__main__":
         swarm.step(DT)
         t_sim[0] += DT
 
-        # ── Read sensors ───────────────────────────────────────────────────────
-        radar_det   = radar.sense()     # ndarray (n_detected, 4)  [x, y, vx, vy]
-        optical_det = optical.sense()   # list of {drone_id, bbox, confidence}
-        rf_det      = rf.sense()        # ndarray (n_alive,)  signal strengths
-
-        # ── Fuse via TrackManager ──────────────────────────────────────────────
-        track_states = tm.step(radar_det, optical_det, rf_det)
+        # ── Sense + fuse via pipeline ──────────────────────────────────────────
+        det          = pipeline.step()
+        track_states = pipeline.track_manager.confirmed_tracks()
+        radar_det    = det["radar"]    # ndarray (n_detected, 4)  [x, y, vx, vy]
+        optical_det  = det["optical"]  # list of {drone_id, bbox, confidence}
+        rf_det       = det["rf"]       # ndarray (n_alive,)  signal strengths
 
         # ── Left subplot: raw detections ───────────────────────────────────────
         if radar_det.shape[0] > 0:
@@ -173,14 +187,14 @@ if __name__ == "__main__":
 
     ani = animation.FuncAnimation(
         fig, animate, init_func=init,
-        frames=MAX_STEPS, interval=INTERVAL, blit=False,
+        frames=args.frames, interval=INTERVAL, blit=False,
     )
 
     plt.tight_layout()
 
     if args.save:
         writer = animation.PillowWriter(fps=15)
-        print(f"Saving {MAX_STEPS} frames to {args.save} …")
+        print(f"Saving {args.frames} frames to {args.save} …")
         ani.save(args.save, writer=writer)
         print(f"Saved → {args.save}")
     else:

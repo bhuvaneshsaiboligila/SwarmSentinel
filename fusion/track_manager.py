@@ -20,7 +20,9 @@ if __name__ == "__main__":
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 from fusion.kalman_filter import DroneKalmanFilter
+from fusion.ekf import DroneEKF
 
 # A track is pruned after this many consecutive frames with no matching detection.
 MAX_MISSED = 8
@@ -51,12 +53,13 @@ class Track:
         vx: float = 0.0,
         vy: float = 0.0,
         dt: float = 1 / 15,
+        filter_cls=DroneKalmanFilter,
     ):
         self.track_id = track_id
         self.age = 0            # total steps this track has existed
         self.missed_frames = 0  # consecutive steps without a matching detection
 
-        self._kf = DroneKalmanFilter(dt=dt)
+        self._kf = filter_cls(dt=dt)
         self._kf.initialize(x=x, y=y, vx=vx, vy=vy)
 
     def predict(self):
@@ -115,15 +118,17 @@ class TrackManager:
 
     Each call to step() runs:
       1. Predict    — roll every track forward one timestep
-      2. Associate  — greedily match detections to the nearest track
+      2. Associate  — globally optimal assignment via scipy linear_sum_assignment
       3. Update     — fuse matched detections; unmatched detections spawn new tracks
       4. Prune      — remove tracks that have missed too many frames
     """
 
-    def __init__(self, dt: float = 1 / 15):
+    def __init__(self, dt: float = 1 / 15, use_ekf: bool = False):
         self.dt = dt
+        self.use_ekf = use_ekf
         self._tracks: list = []
         self._next_id = 0
+        self._last_confirmed: list = []
 
     @property
     def n_tracks(self) -> int:
@@ -205,7 +210,7 @@ class TrackManager:
         # they can accumulate hits) but are hidden from the caller. This prevents
         # optical false-positive ghosts from appearing in the output — they
         # rarely survive long enough to be confirmed.
-        return [
+        self._last_confirmed = [
             {
                 "track_id":      t.track_id,
                 "position":      t.get_position().tolist(),
@@ -216,60 +221,62 @@ class TrackManager:
             for t in self._tracks
             if t.age >= MIN_AGE
         ]
+        return self._last_confirmed
+
+    def confirmed_tracks(self) -> list:
+        """Return the confirmed tracks produced by the most recent step()."""
+        return self._last_confirmed
 
     # ── Internal helpers ───────────────────────────────────────────────────────
 
     def _associate(self, positions: list, update_fns: list) -> list:
         """
-        Greedy nearest-neighbour association.
+        Global optimal assignment via Hungarian algorithm.
 
-        For each detection (in order), find the closest unmatched track within
-        ASSOC_THRESHOLD and call its update function. Detections that find no
-        suitable track are returned as a list of unmatched indices.
-
-        Greedy means we don't guarantee a globally optimal assignment, but it is
-        fast and correct enough for small swarms at this stage.
+        Builds a cost matrix C[i, j] = Euclidean distance between track i's
+        predicted position and detection j's position. Cells that exceed
+        ASSOC_THRESHOLD are set to 1e9 (forbidden). scipy's
+        linear_sum_assignment finds the globally minimum-cost assignment;
+        pairs whose cost remains <= ASSOC_THRESHOLD are accepted.
 
         Args:
-            positions  : list of (2,) arrays — detection positions for distance calc
+            positions  : list of (2,) arrays — detection positions
             update_fns : list of callables (track) → None, one per detection
 
         Returns:
             List of int indices into positions/update_fns that were not matched.
         """
-        unmatched = []
-        matched_ids = set()   # track_ids already assigned this step
+        if not positions or not self._tracks:
+            return list(range(len(positions)))
 
-        for i, pos in enumerate(positions):
-            best_track, best_dist = self._nearest_unmatched_track(pos, matched_ids)
-            if best_track is not None and best_dist <= ASSOC_THRESHOLD:
-                update_fns[i](best_track)
-                matched_ids.add(best_track.track_id)
-            else:
-                unmatched.append(i)
+        n_tracks = len(self._tracks)
+        n_dets   = len(positions)
 
-        return unmatched
+        # Build gated cost matrix: rows = tracks, cols = detections
+        C = np.full((n_tracks, n_dets), 1e9)
+        for i, track in enumerate(self._tracks):
+            track_pos = track.get_position()
+            for j, pos in enumerate(positions):
+                d = float(np.linalg.norm(track_pos - pos))
+                if d <= ASSOC_THRESHOLD:
+                    C[i, j] = d
 
-    def _nearest_unmatched_track(self, position: np.ndarray, exclude: set):
-        """
-        Return the (Track, distance) pair closest to position, skipping any
-        track whose id is in exclude. Returns (None, inf) when no tracks exist.
-        """
-        best_track = None
-        best_dist = float("inf")
-        for track in self._tracks:
-            if track.track_id in exclude:
-                continue
-            dist = float(np.linalg.norm(track.get_position() - position))
-            if dist < best_dist:
-                best_dist = dist
-                best_track = track
-        return best_track, best_dist
+        row_idx, col_idx = linear_sum_assignment(C)
+
+        matched_det_ids = set()
+        for r, c in zip(row_idx, col_idx):
+            if C[r, c] <= ASSOC_THRESHOLD:
+                update_fns[c](self._tracks[r])
+                matched_det_ids.add(c)
+
+        return [j for j in range(n_dets) if j not in matched_det_ids]
 
     def _spawn(self, x: float, y: float, vx: float = 0.0, vy: float = 0.0):
         """Initialise a new track at (x, y) with optional velocity seed."""
+        filter_cls = DroneEKF if self.use_ekf else DroneKalmanFilter
         track = Track(
-            track_id=self._next_id, x=x, y=y, vx=vx, vy=vy, dt=self.dt
+            track_id=self._next_id, x=x, y=y, vx=vx, vy=vy, dt=self.dt,
+            filter_cls=filter_cls,
         )
         self._tracks.append(track)
         self._next_id += 1

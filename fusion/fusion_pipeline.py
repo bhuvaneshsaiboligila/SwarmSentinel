@@ -5,8 +5,9 @@ Reads all three sensors each frame and hands their outputs to TrackManager.
 This file is intentionally thin — it is glue, not logic.
 
 Call order each frame (driven externally):
-    swarm.step(dt)          ← advance the physics simulation
-    pipeline.step()         ← sense → fuse → return track states
+    swarm.step(dt)              ← advance the physics simulation
+    detections = pipeline.step()       ← sense → fuse; returns raw detection dict
+    tracks = pipeline.confirmed_tracks()  ← get current confirmed track list
 """
 
 import sys
@@ -31,49 +32,49 @@ class FusionPipeline:
     the active track list in a flat, easy-to-consume format.
     """
 
-    def __init__(self, swarm, dt: float = 1 / 15):
+    def __init__(self, swarm, dt: float = 1 / 15, n_sensors: int = 3, use_ekf: bool = False):
         """
         Args:
-            swarm: Swarm instance — sensors hold a reference and read it each step.
-            dt:    Timestep in seconds; must match the simulation DT.
+            swarm:     Swarm instance — sensors hold a reference and read it each step.
+            dt:        Timestep in seconds; must match the simulation DT.
+            n_sensors: How many sensor modalities to activate (1=radar, 2=+optical,
+                       3=+RF). Sensors beyond n_sensors return empty detections.
+            use_ekf:   If True, TrackManager uses DroneEKF (5-state CTR) instead of
+                       DroneKalmanFilter (4-state CV). Default False preserves existing behaviour.
         """
-        # Derive canvas size from the drones' wrap boundary so optical false
-        # positives are placed within the visible area (CLAUDE.md known issue #2).
-        bounds = swarm.drones[0].bounds if swarm.drones else 100.0
-        area = (bounds, bounds)
+        # Drone.bounds is a (w, h) tuple since the rectangular-bounds fix.
+        # Use it directly as the optical-sensor area so FPs stay within the canvas.
+        area = swarm.drones[0].bounds if swarm.drones else (100.0, 100.0)
 
-        self._radar   = RadarSensor(swarm)
-        self._optical = OpticalSensor(swarm, area=area)
-        self._rf      = RFSensor(swarm)
-        self._tm      = TrackManager(dt=dt)
+        self._radar        = RadarSensor(swarm)
+        self._optical      = OpticalSensor(swarm, area=area)
+        self._rf           = RFSensor(swarm)
+        self.track_manager = TrackManager(dt=dt, use_ekf=use_ekf)
+        self._n_sensors    = n_sensors
 
-    def step(self) -> list:
+    def confirmed_tracks(self) -> list:
+        """Return confirmed tracks from the most recent step()."""
+        return self.track_manager.confirmed_tracks()
+
+    def step(self) -> dict:
         """
         Run one full sense → fuse cycle.
 
-        1. Sample all three sensors from the current swarm state.
+        1. Sample active sensors from the current swarm state.
         2. Pass detections to TrackManager (predict + associate + update + prune).
-        3. Flatten track states into {track_id, x, y, vx, vy} dicts.
+        3. Return the raw sensor readings so callers can visualise them.
+           Confirmed tracks are available via self.track_manager.confirmed_tracks().
 
         Returns:
-            List of dicts, one per active track.
+            Dict with keys "radar", "optical", "rf" containing raw sensor output.
         """
-        radar_det   = self._radar.sense()    # (n_detected, 4): [x, y, vx, vy]
-        optical_det = self._optical.sense()  # list of {drone_id, bbox, confidence}
-        rf_det      = self._rf.sense()       # (n_alive,): signal strengths
+        radar_det   = self._radar.sense()                                         # always active
+        optical_det = self._optical.sense() if self._n_sensors >= 2 else []      # sensor 2
+        rf_det      = self._rf.sense()      if self._n_sensors >= 3 else []      # sensor 3
 
-        raw_states = self._tm.step(radar_det, optical_det, rf_det)
+        self.track_manager.step(radar_det, optical_det, rf_det)
 
-        return [
-            {
-                "track_id": s["track_id"],
-                "x":  s["position"][0],
-                "y":  s["position"][1],
-                "vx": s["velocity"][0],
-                "vy": s["velocity"][1],
-            }
-            for s in raw_states
-        ]
+        return {"radar": radar_det, "optical": optical_det, "rf": rf_det}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -88,11 +89,12 @@ if __name__ == "__main__":
     print(f"{'Step':>5}  {'Active Tracks':>14}")
     print("-" * 24)
 
-    tracks = []
     for step in range(5):
-        swarm.step(DT)           # advance physics
-        tracks = pipeline.step() # sense + fuse
+        swarm.step(DT)
+        detections = pipeline.step()
+        tracks     = pipeline.confirmed_tracks()
         print(f"{step:>5}  {len(tracks):>14}")
 
     assert len(tracks) > 0, "Expected at least one active track after 5 steps"
-    print(f"\nDone. Pipeline is alive with {len(tracks)} active track(s).")
+    print(f"\nDetections this frame: {sum(len(v) for v in detections.values())}")
+    print(f"Confirmed tracks: {len(tracks)}")
