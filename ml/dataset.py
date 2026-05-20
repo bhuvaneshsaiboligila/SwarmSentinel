@@ -128,13 +128,11 @@ class SyntheticSwarmDataset:
         return int(self.y.shape[0])
 
     def __getitem__(self, idx):
-        x = self.X[idx]   # (T, 4) float32
-        y = int(self.y[idx])
-        try:
-            import torch
-            return torch.from_numpy(x.copy()), torch.tensor(y, dtype=torch.long)
-        except ImportError:
-            return x, np.int64(y)
+        import torch
+        return (
+            torch.from_numpy(self.X[idx].copy()),                      # float32, (T, 4)
+            torch.tensor(int(self.y[idx]), dtype=torch.long),          # int64
+        )
 
 
 # ── Smoke test ─────────────────────────────────────────────────────────────────
