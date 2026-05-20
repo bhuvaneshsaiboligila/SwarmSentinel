@@ -19,7 +19,8 @@ env/
 *.pkl
 data/raw/
 data/processed/
-ml/checkpoints/
+ml/checkpoints/*.pt
+ml/checkpoints/*.pth
 
 # Jupyter
 .ipynb_checkpoints/
