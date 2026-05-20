@@ -132,9 +132,8 @@ python simulator/run_simulation.py
 
 ## Known Issues
 
-- **EKF is optional, not default.** `TrackManager` uses `DroneKalmanFilter` (4-state CV) by default. Pass `use_ekf=True` to `FusionPipeline` or `TrackManager` to enable the 5-state CTR `DroneEKF`.
-- **Benchmark compares KF vs EKF, not sensor count.** The three configs in `benchmarks/fusion_error.py` are: radar-only KF, radar+optical KF, radar+optical EKF. RF is excluded because `TrackManager` does not use signal strength for spatial association.
-- **Swarm bounds model is square-only.** `Drone.bounds` is a `(w, h)` tuple and wrapping is per-axis, but `_spawn_drones` in `swarm.py` uses `area[0]` for both axes. Keep `spawn_area` square (e.g. `(100, 100)`).
+- **Benchmark compares 1/2/3 sensor configs, not KF vs EKF.** Config 1: radar only; Config 2: radar + optical; Config 3: radar + optical + RF. RF carries no position information — in Config 3, `TrackManager` uses `rf_arr.size` (total channel count = n\_alive) as a spawn cap to prevent ghost tracks without the systematic under-count that positive-signal counting would cause.
+- **EKF is implemented but not the default run path.** `TrackManager` uses `DroneKalmanFilter` (4-state CV) by default. Pass `--ekf` to `run_fusion.py`, or `use_ekf=True` to `FusionPipeline` / `TrackManager`, to enable the 5-state CTR `DroneEKF`.
 - **Detailed Phase 1 completion state:** see [`docs/PHASE1_CHECKLIST.md`](docs/PHASE1_CHECKLIST.md).
 
 ---
