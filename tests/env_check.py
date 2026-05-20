@@ -50,6 +50,47 @@ try:
         os.unlink(tmp_path)
     plt.close(fig)
 
+    # ── Smoke test: run_simulation.py imports + exits cleanly ─────────────────
+    import subprocess, tempfile
+    with tempfile.NamedTemporaryFile(suffix=".gif", delete=False) as tmp:
+        smoke_path = tmp.name
+    try:
+        result = subprocess.run(
+            [sys.executable, "simulator/run_simulation.py",
+             "--behavior", "random", "--frames", "5", "--save", smoke_path],
+            capture_output=True,
+        )
+        assert result.returncode == 0, (
+            f"run_simulation.py smoke test failed (rc={result.returncode}):\n"
+            + result.stderr.decode()
+        )
+    finally:
+        os.unlink(smoke_path)
+
+    # ── TEST 1: Phase 1 CLI (--mode alias + --no-display) ─────────────────────
+    _cmd1 = [sys.executable, "simulator/run_simulation.py",
+             "--mode", "random", "--frames", "5", "--no-display"]
+    _r1 = subprocess.run(_cmd1, capture_output=True)
+    if _r1.returncode == 0:
+        assert "Animation was deleted" not in _r1.stderr.decode(), \
+            "TEST 1 produced 'Animation was deleted' warning"
+        print("PASS  simulator/run_simulation.py --mode random --frames 5 --no-display")
+    else:
+        print("FAIL  simulator/run_simulation.py --mode random --frames 5 --no-display")
+        raise AssertionError(_r1.stderr.decode())
+
+    # ── TEST 2: Phase 2 CLI (--frames + --no-display) ─────────────────────────
+    _cmd2 = [sys.executable, "fusion/run_fusion.py",
+             "--frames", "5", "--no-display"]
+    _r2 = subprocess.run(_cmd2, capture_output=True)
+    if _r2.returncode == 0:
+        assert "Animation was deleted" not in _r2.stderr.decode(), \
+            "TEST 2 produced 'Animation was deleted' warning"
+        print("PASS  fusion/run_fusion.py --frames 5 --no-display")
+    else:
+        print("FAIL  fusion/run_fusion.py --frames 5 --no-display")
+        raise AssertionError(_r2.stderr.decode())
+
     print("ENV OK")
     sys.exit(0)
 
