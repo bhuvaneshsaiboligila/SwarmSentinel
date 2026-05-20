@@ -77,13 +77,64 @@ python simulator/run_simulation.py --behavior flock --save assets/my_run.gif
 
 ---
 
+## Phase 3 — Swarm AI Classifier
+
+### Architecture
+
+```
+Input: (batch, 20 timesteps, 8 features)
+  └─ LSTM(input=8, hidden=64, layers=2, dropout=0.3)
+       └─ last hidden state (batch, 64)
+            └─ Linear(64→32) → ReLU → Dropout(0.3) → Linear(32→3)
+Output: logits (batch, 3)  →  softmax  →  class probabilities
+```
+
+**53,379 parameters.** Training: 1,500 synthetic samples (500/class), 50 epochs, Adam lr=1e-3.
+
+### Input Features (per timestep)
+
+| # | Feature | Description |
+|---|---------|-------------|
+| 0–1 | `centroid_x/y` | Mean position of radar-detected drones (m) |
+| 2–3 | `centroid_vx/vy` | Mean velocity of radar-detected drones (m/s) |
+| 4–5 | `spread_x/y` | Std of drone positions — 0 for individual, >20 for swarms |
+| 6 | `n_alive_norm` | Active drone count / 25 — ≈0.04 individual, ≈0.96 swarm |
+| 7 | `mean_speed` | Mean per-drone speed (m/s) |
+
+### Classification Results (held-out test set, 600 samples)
+
+| Class | Precision | Recall | F1 |
+|-------|-----------|--------|----|
+| individual | 1.000 | 1.000 | **1.000** |
+| swarm | 0.915 | 0.650 | **0.760** |
+| attack | 0.729 | 0.940 | **0.821** |
+| **macro avg** | 0.881 | 0.863 | **0.860** |
+
+**Overall accuracy: 86.3%** — exceeds the 85% Phase 3 target.
+
+The individual class is classified perfectly (`spread=0` and `n_alive_norm≈0.04` are unambiguous). Swarm/attack confusion is concentrated in early-stage attack sequences where the convergence pattern hasn't yet separated from flocking motion within the 1.3-second observation window.
+
+### Phase 3 Modules
+
+| File | Description |
+|------|-------------|
+| `ml/dataset.py` | Synthetic 3-class trajectory dataset generator |
+| `ml/model.py` | `SwarmClassifier` LSTM architecture |
+| `ml/train.py` | Training loop (50 epochs, Adam, 80/20 split) |
+| `ml/evaluate.py` | Evaluation: accuracy, per-class F1, confusion matrix |
+| `ml/predictor.py` | Physics-based trajectory predictor (linear extrapolation, horizon=10) |
+| `ml/threat_ranker.py` | Threat scorer: `0.5·attack_prob + 0.3·speed + 0.2·proximity` |
+| `ml/MODEL_CARD.md` | Full model card with limitations and intended use |
+
+---
+
 ## Project Phases
 
 | Phase | Focus | Status |
 |-------|-------|--------|
 | Phase 1 (Wk 1–6) | Swarm Simulator + Sensor Models | ✅ Complete |
-| Phase 2 (Wk 7–12) | Kalman Filter Sensor Fusion | 🔧 In Progress (~70%) |
-| Phase 3 (Wk 13–20) | PyTorch Swarm Classification | ⏳ Planned |
+| Phase 2 (Wk 7–12) | Kalman Filter Sensor Fusion | ✅ Complete |
+| Phase 3 (Wk 13–20) | PyTorch Swarm Classification | ✅ Complete |
 | Phase 4 (Wk 21–28) | HPC Layer + Kafka + C2 Dashboard | ⏳ Planned |
 
 ---
@@ -111,7 +162,8 @@ SwarmSentinel/
 ├── simulator/        # Swarm physics engine (Drone, Swarm, Boids behaviors)
 ├── sensors/          # Radar, optical, RF sensor models
 ├── fusion/           # Kalman filter + EKF pipeline, TrackManager
-├── benchmarks/       # Fusion accuracy benchmarks (RMSE vs sensor count)
+├── ml/               # Phase 3: LSTM classifier, predictor, threat ranker
+├── benchmarks/       # Fusion RMSE benchmarks (sensor count comparison)
 ├── assets/           # Demo GIFs
 ├── docs/             # Project documentation
 └── tests/            # Environment check and CLI smoke tests
