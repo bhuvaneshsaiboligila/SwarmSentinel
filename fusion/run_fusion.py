@@ -60,11 +60,17 @@ if __name__ == "__main__":
         action="store_true",
         help="Headless mode (Agg backend, no window). For CI and smoke tests.",
     )
+    parser.add_argument(
+        "--ekf",
+        action="store_true",
+        default=False,
+        help="Use DroneEKF (5-state CTR) instead of DroneKalmanFilter (4-state CV).",
+    )
     args = parser.parse_args()
 
     # ── Simulation objects ─────────────────────────────────────────────────────
     swarm    = Swarm(n_drones=N_DRONES, spawn_area=AREA, behavior="flock")
-    pipeline = FusionPipeline(swarm, dt=DT)
+    pipeline = FusionPipeline(swarm, dt=DT, use_ekf=args.ekf)
 
     if args.no_display and not args.save:
         for _ in range(args.frames):
