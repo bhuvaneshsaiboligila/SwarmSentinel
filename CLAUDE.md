@@ -97,7 +97,7 @@ Empty package initializer. No content needed.
 - `step(dt)`: dispatches to `_random_behavior`, `_flock_behavior`, or `_attack_behavior`; raises `ValueError` on unknown behavior
 - Delegates all force math to `simulator.behaviors` (no inline math)
 - `get_positions()` → (N, 2), `get_velocities()` → (N, 2), `n_alive` property
-- `_spawn_drones` passes `bounds=float(area[0])` to each `Drone` — both axes use `area[0]`, so non-square arenas are not supported. Keep `spawn_area` square (e.g. `(100, 100)`).
+- `_spawn_drones` passes `bounds=(float(area[0]), float(area[1]))` to each `Drone` — rectangular arenas are supported; wrapping is per-axis.
 
 ### simulator/behaviors.py
 Four standalone pure-NumPy functions. Complete.
@@ -138,13 +138,13 @@ Empty package initializer.
 
 ## What Is Broken / Known Issues
 
-1. ~~**Swarm does not propagate bounds to Drone.**~~ **FIXED.** `_spawn_drones` now passes `bounds=float(area[0])` to each `Drone`. Remaining constraint: both axes use `area[0]`, so non-square arenas are not supported — keep `spawn_area` square.
+1. ~~**Swarm does not propagate bounds to Drone.**~~ **FIXED.** `_spawn_drones` now passes `bounds=(float(area[0]), float(area[1]))` to each `Drone`. Rectangular arenas are supported; wrapping is per-axis.
 2. ~~**OpticalSensor default area mismatch.**~~ **FIXED.** Constructor default corrected to `area=(100, 100)`; still best practice to pass `area=AREA` explicitly when constructing outside `FusionPipeline`.
 3. **`python fusion/file.py` requires sys.path fix.** Running any fusion script with `python fusion/file.py` puts `fusion/` (not the project root) in `sys.path[0]`, breaking `from fusion.* import`. Fixed in `track_manager.py` and `run_fusion.py` via `sys.path.insert(0, project_root)` guarded by `if __name__ == "__main__"`. Same applies to `simulator/run_simulation.py`.
 4. **Track count inflated to 30+ tracks for 25 drones — fixed.** Root cause: optical false positives (~2–3 per frame, fp_rate=0.1, 25 drones) landed in empty canvas regions and spawned ghost tracks that aged past the min_age gate by absorbing subsequent FPs through the wide association gate. Fix: optical detections now only UPDATE existing tracks, never spawn new ones. Only radar spawns (radar has 0% FP rate). Result: steady-state output is exactly 25 tracks.
 5. ~~**`--save` flag requires an explicit PATH.**~~ **FIXED.** `--save` is now a `metavar="PATH"` argument; argparse enforces the path is supplied.
 6. ~~**Ignored-vs-tracked asset rules are inconsistent.**~~ **FIXED.** `.gitignore` now has `!CLAUDE.md` and `!assets/*.gif` force-track rules; tracked GIFs update normally without `git add -f`.
-7. **TrackManager not using DroneEKF.** `TrackManager` still instantiates `DroneKalmanFilter`. `DroneEKF` is a drop-in replacement but has not been swapped in yet.
+7. ~~**TrackManager not using DroneEKF.**~~ **FIXED.** `TrackManager` selects `DroneEKF` when `use_ekf=True`; defaults to `DroneKalmanFilter`. `run_fusion.py` now exposes `--ekf` to enable it.
 8. ~~**Benchmark 3-sensor result is misleading.**~~ **DEFERRED (not broken).** RF fusion into track state is intentionally deferred to Phase 3, where RF signal strength will weight threat scores rather than track positions. TrackManager uses RF channel count as a spawn cap (prevents ghost tracks); the benchmark correctly shows a small RMSE improvement (0.341 m vs 0.350 m) with 3 sensors.
 9. **Phase 2 demo GIF is stale.** `assets/phase2_fusion_demo.gif` was recorded before the ghost-track fix; it shows ~30 tracks instead of ~25. Needs to be re-recorded.
 
@@ -157,7 +157,7 @@ Empty package initializer.
 - Nonlinear state transition `f(x)` with analytical 5×5 Jacobian (`_F_jacobian` in `fusion/ekf.py`)
 - Measurement function `h(x) = H @ x` is linear — Joseph-form Kalman update is correct and unchanged
 - Uses `filterpy.kalman.ExtendedKalmanFilter` internally; `predict()` bypasses filterpy's `F`-based step and applies `f(x)` directly
-- **NOT yet integrated into TrackManager** — `TrackManager` still uses `DroneKalmanFilter` (4-state, constant velocity)
+- **Integrated into TrackManager via `use_ekf=True`**, but defaults to `False` everywhere — `run_fusion.py` now exposes `--ekf` to enable it; `DroneKalmanFilter` (4-state CV) remains the default
 
 ### Track Manager
 - Association: Hungarian algorithm via `scipy.optimize.linear_sum_assignment` (global optimum, not greedy)
