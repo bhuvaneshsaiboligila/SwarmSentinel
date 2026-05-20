@@ -25,7 +25,7 @@ class Drone:
         velocity: np.ndarray,
         drone_type: str = "scout",
         max_speed: float = 2.5,
-        bounds: float = 100.0,
+        bounds: tuple = (100.0, 100.0),
     ):
         self.drone_id = drone_id
         self.position = position.astype(float)
@@ -42,8 +42,11 @@ class Drone:
         Args:
             dt: timestep in seconds (e.g. 0.1 for 10Hz update rate)
         """
+        if not self.alive:
+            return
         self.position += self.velocity * dt
-        self.position[:] = self.position % self.bounds
+        self.position[0] %= self.bounds[0]
+        self.position[1] %= self.bounds[1]
         speed = np.linalg.norm(self.velocity)
         if speed > self.max_speed:
             self.velocity *= self.max_speed / speed
@@ -57,6 +60,8 @@ class Drone:
             force: np.array([fx, fy]) acceleration in m/s^2
             dt   : timestep in seconds
         """
+        if not self.alive:
+            return
         self.velocity += force * dt
 
     def kill(self):

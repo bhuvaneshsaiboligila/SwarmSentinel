@@ -66,7 +66,7 @@ def flock_forces(
 
 def boundary_forces(
     positions: np.ndarray,
-    bounds: float,
+    bounds: tuple,
     margin: float = 20.0,
 ) -> np.ndarray:
     """
@@ -78,7 +78,7 @@ def boundary_forces(
     forces = np.zeros_like(positions)
     for axis in range(2):
         dist_lo = positions[:, axis]           # distance from low wall (x=0 or y=0)
-        dist_hi = bounds - positions[:, axis]  # distance from high wall
+        dist_hi = bounds[axis] - positions[:, axis]  # distance from high wall
         near_lo = dist_lo < margin
         near_hi = dist_hi < margin
         forces[near_lo, axis] += (margin - dist_lo[near_lo]) / margin

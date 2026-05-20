@@ -30,7 +30,7 @@ class Swarm:
         for i in range(n):
             pos = np.random.uniform([0, 0], [area[0], area[1]])
             vel = np.random.uniform(-2.0, 2.0, size=2)  # random initial velocity
-            drones.append(Drone(drone_id=i, position=pos, velocity=vel))
+            drones.append(Drone(drone_id=i, position=pos, velocity=vel, bounds=(float(area[0]), float(area[1]))))
         return drones
 
     def step(self, dt: float):
@@ -45,14 +45,16 @@ class Swarm:
             raise ValueError(f"Unknown behavior: {self.behavior!r}. Expected 'random', 'flock', or 'attack'.")
 
         for drone in self.drones:
-            drone.update(dt)
+            if drone.alive:
+                drone.update(dt)
 
     def _random_behavior(self, dt: float):
         """Add small random perturbations — simulates disorganized movement."""
-        positions = np.array([d.position for d in self.drones])
-        velocities = np.array([d.velocity for d in self.drones])
-        forces = random_forces(positions, velocities, len(self.drones))
-        for drone, force in zip(self.drones, forces):
+        alive = [d for d in self.drones if d.alive]
+        positions = np.array([d.position for d in alive])
+        velocities = np.array([d.velocity for d in alive])
+        forces = random_forces(positions, velocities, len(alive))
+        for drone, force in zip(alive, forces):
             drone.apply_force(force, dt)
 
     def _flock_behavior(
@@ -63,15 +65,18 @@ class Swarm:
         cohesion_radius: float = 55.0,
     ):
         """Classic Reynolds Boids: separation, alignment, cohesion + wall repulsion."""
-        positions = np.array([d.position for d in self.drones])
-        velocities = np.array([d.velocity for d in self.drones])
-        bounds = self.drones[0].bounds
+        alive = [d for d in self.drones if d.alive]
+        if not alive:
+            return
+        positions = np.array([d.position for d in alive])
+        velocities = np.array([d.velocity for d in alive])
+        bounds = alive[0].bounds
         forces = (
-            flock_forces(positions, velocities, len(self.drones),
+            flock_forces(positions, velocities, len(alive),
                          sep_radius, align_radius, cohesion_radius)
             + boundary_forces(positions, bounds)
         )
-        for drone, force in zip(self.drones, forces):
+        for drone, force in zip(alive, forces):
             drone.apply_force(force, dt)
 
     def _attack_behavior(self, dt: float, max_force: float = 0.5):
@@ -79,9 +84,12 @@ class Swarm:
         if self.target is None:
             self._flock_behavior(dt)
             return
-        positions = np.array([d.position for d in self.drones])
-        forces = attack_forces(positions, self.target, len(self.drones), max_force)
-        for drone, force in zip(self.drones, forces):
+        alive = [d for d in self.drones if d.alive]
+        if not alive:
+            return
+        positions = np.array([d.position for d in alive])
+        forces = attack_forces(positions, self.target, len(alive), max_force)
+        for drone, force in zip(alive, forces):
             drone.apply_force(force, dt)
 
     def get_positions(self) -> np.ndarray:

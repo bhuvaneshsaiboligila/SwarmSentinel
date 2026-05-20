@@ -2,9 +2,15 @@
 # Run this to see your swarm in action:
 #   python simulator/run_simulation.py [--behavior random|flock|attack]
 
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import argparse
 
 import numpy as np
+import matplotlib
+if "--no-display" in sys.argv:
+    matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
@@ -25,9 +31,10 @@ BEHAVIOR_COLORS = {"random": "#00ff88", "flock": "#00aaff", "attack": "#ff4444"}
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SwarmSentinel live simulation")
     parser.add_argument(
-        "--behavior",
+        "--behavior", "--mode",
         choices=["random", "flock", "attack"],
         default="flock",
+        dest="behavior",
         help="Swarm behavior to simulate (default: flock)",
     )
     parser.add_argument(
@@ -36,11 +43,28 @@ if __name__ == "__main__":
         default=None,
         help="Save animation as GIF to PATH instead of opening a window",
     )
+    parser.add_argument(
+        "--frames",
+        type=int,
+        default=MAX_STEPS,
+        help="Number of animation frames (default: 200)",
+    )
+    parser.add_argument(
+        "--no-display",
+        action="store_true",
+        help="Headless mode (Agg backend, no window). For CI and smoke tests.",
+    )
     args = parser.parse_args()
 
     target = np.array([50.0, 50.0]) if args.behavior == "attack" else None
     swarm  = Swarm(n_drones=N_DRONES, spawn_area=AREA,
                    behavior=args.behavior, target=target)
+
+    if args.no_display and not args.save:
+        for _ in range(args.frames):
+            swarm.step(DT)
+        print("Headless run complete.")
+        sys.exit(0)
 
     dot_color = BEHAVIOR_COLORS.get(args.behavior, "#00ff88")
 
@@ -55,6 +79,8 @@ if __name__ == "__main__":
         sp.set_edgecolor("#333355")
 
     scat  = ax.scatter([], [], c=dot_color, s=14, alpha=0.85, zorder=2)
+    if args.behavior == "attack" and target is not None:
+        ax.plot(target[0], target[1], "rx", ms=14, mew=2.5, zorder=3)
     title = ax.set_title(
         f"SwarmSentinel — {N_DRONES} drones [{args.behavior}]",
         color="white", fontsize=11,
@@ -80,14 +106,14 @@ if __name__ == "__main__":
 
     ani = animation.FuncAnimation(
         fig, animate, init_func=init,
-        frames=MAX_STEPS, interval=INTERVAL, blit=False,
+        frames=args.frames, interval=INTERVAL, blit=False,
     )
 
     plt.tight_layout()
 
     if args.save:
         writer = animation.PillowWriter(fps=15)
-        print(f"Saving {MAX_STEPS} frames to {args.save} …")
+        print(f"Saving {args.frames} frames to {args.save} …")
         ani.save(args.save, writer=writer)
         print(f"Saved → {args.save}")
     else:
