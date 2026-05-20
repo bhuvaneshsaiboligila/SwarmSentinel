@@ -225,7 +225,9 @@ class TrackManager:
             {
                 "track_id":      t.track_id,
                 "position":      t.get_position().tolist(),
-                "velocity":      t.get_state()[2:].tolist(),
+                # [2:4] not [2:] — DroneEKF state is [x,y,vx,vy,omega]; omega
+                # is an internal filter state, not a reported output quantity.
+                "velocity":      t.get_state()[2:4].tolist(),
                 "age":           t.age,
                 "missed_frames": t.missed_frames,
             }
