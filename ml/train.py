@@ -1,7 +1,7 @@
 """
 ml/train.py — Training loop for SwarmClassifier.
 
-Generates a 3-class synthetic dataset, splits 80/20, trains for 30 epochs with
+Generates a 3-class synthetic dataset, splits 80/20, trains for 50 epochs with
 Adam and CrossEntropyLoss, and saves the best checkpoint to ml/checkpoints/.
 
 Run from project root:
@@ -24,9 +24,9 @@ from ml.model import SwarmClassifier
 CHECKPOINT_DIR = pathlib.Path(__file__).parent / "checkpoints"
 
 # ── Hyperparameters ────────────────────────────────────────────────────────────
-N_PER_CLASS = 300
+N_PER_CLASS = 500
 BATCH_SIZE  = 32
-EPOCHS      = 30
+EPOCHS      = 50
 LR          = 1e-3
 SEED        = 42
 
