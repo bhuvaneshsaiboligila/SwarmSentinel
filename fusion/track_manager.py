@@ -181,8 +181,19 @@ class TrackManager:
         ]
         radar_unmatched_idx = self._associate(radar_positions, radar_update_fns)
 
+        # RF confidence gate: when RF data is present (n_sensors=3), use the
+        # total number of RF channels monitored (= n_alive, one entry per drone
+        # regardless of dropout) as a spawn cap.  Using the channel count rather
+        # than only the positive-signal count avoids the systematic under-count
+        # caused by the 15% dropout rate (which would cap tracks at ~21 instead
+        # of the correct 25 and permanently lose dropped drones).
+        rf_arr = np.asarray(rf_detections, dtype=float).ravel()
+        rf_count_hint = rf_arr.size if rf_arr.size > 0 else None
+
         # Unmatched radar detections → spawn new tracks (use reported velocity as seed)
         for i in radar_unmatched_idx:
+            if rf_count_hint is not None and len(self._tracks) >= rf_count_hint:
+                continue  # RF evidence says we already track enough drones
             det = radar_arr[i]
             self._spawn(x=det[0], y=det[1], vx=det[2], vy=det[3])
 
