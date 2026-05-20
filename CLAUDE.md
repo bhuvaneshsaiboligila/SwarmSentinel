@@ -48,7 +48,7 @@ python tests/env_check.py
 `--frames N` overrides the default frame count (200 for simulator, 150 for fusion).
 
 ## Current Phase
-Phase 1 — COMPLETE | Phase 2 — IN PROGRESS (Weeks 7–12: Sensor Fusion)
+Phase 1 — COMPLETE | Phase 2 — COMPLETE | Phase 3 — COMPLETE | Phase 4 — PLANNED (Weeks 21–28: HPC + C2)
 
 ---
 
@@ -169,20 +169,25 @@ Empty package initializer.
 ---
 
 ## Last Tagged Milestone
-v0.1 — Phase 1 complete. env_check passes (Python 3.13.11, NumPy 2.4.4, Matplotlib 3.10.9). run_simulation.py constants fixed to safe values (N=25, 15fps, 200 frames, 1 subplot). README updated with GIF embed, running instructions, sensor model descriptions, Phase 1 marked Complete.
+v0.3 — Phase 3 complete. SwarmClassifier LSTM: 86.3% test accuracy, macro F1=0.860. 8-feature centroid representation (cx, cy, cvx, cvy, spread_x, spread_y, n_alive_norm, mean_speed). Individual class F1=1.000; swarm/attack confusion at early-stage attacks (70/200 swarm→attack misclassified in 1.3 s window). TrajectoryPredictor (linear extrapolation, horizon=10). ThreatRanker (weighted attack_prob + speed + proximity). MODEL_CARD.md written.
+
+v0.2 — Phase 2 complete. Multi-sensor fusion pipeline: radar+optical+RF → TrackManager → 25 confirmed tracks. DroneEKF (5-state CTR) implemented and selectable via use_ekf=True / --ekf flag. Benchmark: RMSE 0.399 m (radar) → 0.341 m (3-sensor).
+
+v0.1 — Phase 1 complete. env_check passes (Python 3.13.11, NumPy 2.4.4, Matplotlib 3.10.9). run_simulation.py constants fixed to safe values (N=25, 15fps, 200 frames, 1 subplot).
 
 ## Last Working Demo
 `assets/phase2_fusion_demo.gif` — 150 frames, 15 fps, 1200×600 px, 2.1 MB. Two-subplot animation: raw sensor detections (left) vs. fused Kalman tracks (right). 25 drones, flock behavior.
 
-## What to Work on Next
+## What to Work on Next (Phase 4)
 
-1. **Integrate DroneEKF into TrackManager** — swap `DroneKalmanFilter` for `DroneEKF` in `fusion/track_manager.py` (`_spawn` method)
-2. **Fix benchmark RF claim or wire RF into tracker** — either document that RF adds no RMSE benefit (expected), or implement an RF-assisted position prior
-3. **Fix headless `--no-display` animation warnings** — `FuncAnimation` may still emit matplotlib warnings in Agg mode; investigate and silence for clean CI output
-4. **Fix swarm rectangular bounds + attack empty-alive guard** — `_spawn_drones` uses `area[0]` for both axes; `_attack_behavior` should guard against an empty alive list
-5. **Refresh Phase 2 demo GIF** — re-record `assets/phase2_fusion_demo.gif` showing ~25 confirmed tracks (current GIF shows ~30, pre-fix)
-6. **Verify or create `PHASE1_CHECKLIST.md`** — confirm it exists and reflects actual Phase 1 completion state
-7. **Apply v0.2 tag and push**
+1. **Replace internal queues with Apache Kafka** — sensors become microservices; wire radar/optical/RF as Kafka producers
+2. **Parallelize fusion pipeline** — Python multiprocessing; one process per sensor, one for TrackManager
+3. **MPI-based distributed track processing** — `hpc/mpi_tracker.py` via mpi4py
+4. **FastAPI backend** — WebSocket endpoint streaming confirmed tracks + threat scores in real time
+5. **React C2 dashboard** — live 2D map, track list with threat scores, swarm detection alerts
+6. **Latency benchmark** — `benchmarks/results.md` at 10 / 100 / 1000 simulated drones
+7. **Refresh Phase 2 demo GIF** — re-record `assets/phase2_fusion_demo.gif` showing ~25 confirmed tracks (current GIF shows ~30, pre-fix)
+8. **Apply v1.0 tag when Phase 4 complete**
 
 ---
 
@@ -233,16 +238,51 @@ v0.1 — Phase 1 complete. env_check passes (Python 3.13.11, NumPy 2.4.4, Matplo
   - `DroneEKF` class, drop-in interface identical to `DroneKalmanFilter`
   - State vector: `[x, y, vx, vy, omega]` — 5D Constant Turn Rate (CTR) model
   - Nonlinear `f(x)` with analytical 5×5 Jacobian; uses `filterpy.kalman.ExtendedKalmanFilter` internally
-  - **Not yet wired into TrackManager** — `TrackManager` still instantiates `DroneKalmanFilter`
+  - Integrated into TrackManager via `use_ekf=True`; `--ekf` flag exposed in `run_fusion.py`
 - [x] Benchmark — `benchmarks/fusion_error.py`
   - Real RMSE implementation: Hungarian matching of confirmed tracks to ground truth over 200 steps
   - Compares n_sensors = 1 (radar), 2 (+optical), 3 (+RF)
   - RF deferred to Phase 3 (threat scoring); TrackManager uses RF channel count as a spawn cap — 3-sensor RMSE is 0.341 m vs 0.350 m for 2-sensor
-- [ ] git tag v0.2
+- [x] git tag v0.2
 
 ### Phase 2 — What is NOT done
 
-- **TrackManager still uses `DroneKalmanFilter`** — `DroneEKF` is implemented but not yet plugged in; swap is a one-line change in `track_manager.py`
 - **RF fusion intentionally deferred to Phase 3** — will weight threat scores, not track state; spawn-cap use in TrackManager is its only Phase 2 role
 - **Phase 2 demo GIF is stale** — `assets/phase2_fusion_demo.gif` was recorded when track count was ~30; should show ~25 after the ghost-track fix
-- **v0.2 tag not yet applied**
+
+---
+
+## Phase 3 Progress (Weeks 13–20) — COMPLETE
+
+- [x] Synthetic dataset — `ml/dataset.py`
+  - `SyntheticSwarmDataset`: 3 classes, 8 features per timestep, seq_len=20
+  - Features: `[centroid_x, centroid_y, centroid_vx, centroid_vy, spread_x, spread_y, n_alive_norm, mean_speed]`
+  - Centroid from RadarSensor (noisy); structural features from ground truth
+  - Default 500 samples/class; seed-reproducible
+- [x] LSTM classifier — `ml/model.py`
+  - `SwarmClassifier(nn.Module)`: 2-layer LSTM(hidden=64) + Linear(64→32)→ReLU→Dropout→Linear(32→3)
+  - Input: `(batch, 20, 8)` — Output: raw logits `(batch, 3)`
+  - 53,379 parameters
+- [x] Training loop — `ml/train.py`
+  - 500 samples/class × 3 = 1,500 total; 80/20 split; 50 epochs; Adam lr=1e-3
+  - Best val accuracy: **86.7%** (epoch 50)
+  - Checkpoint saved to `ml/checkpoints/swarm_classifier.pt` (gitignored)
+- [x] Evaluation — `ml/evaluate.py`
+  - Held-out test set: 200 samples/class × 3 = 600 (seed=99, never seen in training)
+  - **Overall accuracy: 86.3%** (518/600)
+  - Per-class F1: individual=1.000, swarm=0.760, attack=0.821
+  - **Macro F1: 0.860** — exceeds Phase 3 target of >85%
+  - Confusion matrix saved to `ml/checkpoints/confusion_matrix.txt`
+  - Key insight: individual class is perfect (spread=0 unambiguous); 70/200 swarm→attack
+    misclassified because attack formation looks like flock in the first 1.3 s window
+- [x] Trajectory predictor — `ml/predictor.py`
+  - `TrajectoryPredictor`: physics-based, no learned model
+  - Fits degree-1 polynomial through last 3 observed centroid positions
+  - `predict(sequence)` → `(10, 2)` future `[x, y]`, clamped to arena bounds
+- [x] Threat ranker — `ml/threat_ranker.py`
+  - `ThreatRanker`: scores each track 0.0–1.0
+  - `threat_score = 0.5 * attack_prob + 0.3 * speed_norm + 0.2 * proximity_norm`
+  - `rank_tracks(tracks, sequences)` → sorted `[(track_id, score), ...]`
+- [x] Model card — `ml/MODEL_CARD.md`
+  - Architecture, training config, per-class metrics, confusion matrix, limitations, intended use
+- [x] git tag v0.3
