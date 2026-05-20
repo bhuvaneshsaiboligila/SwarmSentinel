@@ -153,4 +153,4 @@ This project is built as a portfolio piece targeting roles at:
 
 Bhuvanesh | MSc High Performance Computing & Quantum Computing  
 Deggendorf Institute of Technology, Bavaria, Germany  
-Background: Mechanical Engineering + Robotics
+
