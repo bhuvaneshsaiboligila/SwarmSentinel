@@ -7,9 +7,11 @@ Three configurations matching ROADMAP.md Phase 2 milestone (line 87):
   Config 3: radar + optical + RF    (3 sensors, RF as spawn-confidence gate)
 
 RF carries no position information, so Config 3 differs from Config 2 only in
-that TrackManager uses the RF drone-count estimate to gate new-track spawning:
-a new track is suppressed when the number of live tracks already meets or
-exceeds the count of positively-detected RF signals.
+that TrackManager uses rf_arr.size (total RF channel count = n_alive, one entry
+per drone regardless of dropout) as a spawn cap: a new track is suppressed when
+the number of live tracks already meets or exceeds the total channel count.
+Using the channel count rather than (rf_arr > 0).sum() avoids the systematic
+under-count caused by the 15% dropout rate.
 
 Run from project root:
     python benchmarks/fusion_error.py
