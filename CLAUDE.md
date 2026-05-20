@@ -24,6 +24,29 @@ Read this at the start of every session. Rewrite the relevant sections after eve
 - The project venv (`.venv/`) has no packages installed; do not use it.
 - Run from project root (`/home/bhuvanesh/projects/SwarmSentinel`) so package imports resolve correctly.
 
+## Running the Project
+
+```bash
+# Phase 1 — simulator only
+python simulator/run_simulation.py --behavior flock
+python simulator/run_simulation.py --behavior attack --frames 100 --save assets/attack.gif
+python simulator/run_simulation.py --behavior random --frames 5 --no-display   # headless / CI
+
+# Phase 2 — fusion pipeline
+python fusion/run_fusion.py
+python fusion/run_fusion.py --frames 150 --save assets/phase2_fusion_demo.gif
+python fusion/run_fusion.py --frames 5 --no-display   # headless / CI
+
+# Benchmark
+python benchmarks/fusion_error.py
+
+# Environment + smoke tests
+python tests/env_check.py
+```
+
+`--no-display` switches matplotlib to the Agg backend (no window) — required in CI and SSH sessions.
+`--frames N` overrides the default frame count (200 for simulator, 150 for fusion).
+
 ## Current Phase
 Phase 1 — COMPLETE | Phase 2 — IN PROGRESS (Weeks 7–12: Sensor Fusion)
 
@@ -74,7 +97,7 @@ Empty package initializer. No content needed.
 - `step(dt)`: dispatches to `_random_behavior`, `_flock_behavior`, or `_attack_behavior`; raises `ValueError` on unknown behavior
 - Delegates all force math to `simulator.behaviors` (no inline math)
 - `get_positions()` → (N, 2), `get_velocities()` → (N, 2), `n_alive` property
-- **Known issue**: `_spawn_drones` does not pass `bounds=` to `Drone`; drones always wrap at 100.0 regardless of `spawn_area`. `spawn_area` must therefore always be `(100, 100)` or smaller, otherwise drones immediately wrap to [0, 100) and the visualization axis will be wrong.
+- `_spawn_drones` passes `bounds=float(area[0])` to each `Drone` — both axes use `area[0]`, so non-square arenas are not supported. Keep `spawn_area` square (e.g. `(100, 100)`).
 
 ### simulator/behaviors.py
 Four standalone pure-NumPy functions. Complete.
@@ -104,7 +127,7 @@ Empty package initializer.
 - `sense()` → list of `{drone_id, bbox: [x,y,w,h], confidence}` dicts
 - 10% miss dropout; false positives via `Binomial(n_alive, fp_rate=0.1)` placed uniformly over `area`
 - `drone_id=None` marks false positives
-- Default `area=(500, 500)` in the constructor — **always pass `area=AREA` explicitly** so FPs are placed within the visible canvas.
+- Default `area=(100, 100)` in the constructor — matches the simulation world; still best to pass `area=AREA` explicitly when constructing directly.
 
 ### sensors/rf.py
 `RFSensor`. Complete.
@@ -115,12 +138,33 @@ Empty package initializer.
 
 ## What Is Broken / Known Issues
 
-1. **Swarm does not propagate bounds to Drone.** `spawn_area` must always equal `(100, 100)` or any area ≤ 100 on both axes. Any larger area causes silent wrap-to-[0,100) at the first `update()` call.
-2. **OpticalSensor default area mismatch.** Constructor defaults to `area=(500,500)` but the simulation uses `(100,100)`. Always pass `area=AREA` explicitly at construction.
+1. ~~**Swarm does not propagate bounds to Drone.**~~ **FIXED.** `_spawn_drones` now passes `bounds=float(area[0])` to each `Drone`. Remaining constraint: both axes use `area[0]`, so non-square arenas are not supported — keep `spawn_area` square.
+2. ~~**OpticalSensor default area mismatch.**~~ **FIXED.** Constructor default corrected to `area=(100, 100)`; still best practice to pass `area=AREA` explicitly when constructing outside `FusionPipeline`.
 3. **`python fusion/file.py` requires sys.path fix.** Running any fusion script with `python fusion/file.py` puts `fusion/` (not the project root) in `sys.path[0]`, breaking `from fusion.* import`. Fixed in `track_manager.py` and `run_fusion.py` via `sys.path.insert(0, project_root)` guarded by `if __name__ == "__main__"`. Same applies to `simulator/run_simulation.py`.
 4. **Track count inflated to 30+ tracks for 25 drones — fixed.** Root cause: optical false positives (~2–3 per frame, fp_rate=0.1, 25 drones) landed in empty canvas regions and spawned ghost tracks that aged past the min_age gate by absorbing subsequent FPs through the wide association gate. Fix: optical detections now only UPDATE existing tracks, never spawn new ones. Only radar spawns (radar has 0% FP rate). Result: steady-state output is exactly 25 tracks.
-5. **`--save` flag requires an explicit PATH.** `python fusion/run_fusion.py --save` without a path raises argparse error. Must pass full path: `python fusion/run_fusion.py --save assets/phase2_fusion_demo.gif`.
-6. **Ignored-vs-tracked asset rules are inconsistent.** `.gitignore` excludes new `assets/*.gif` files and also lists `CLAUDE.md`, but `CLAUDE.md` and `assets/phase2_fusion_demo.gif` are already tracked. In practice: `assets/phase1_demo.gif` is still ignored/untracked; tracked files continue to update normally; any brand-new GIF still needs `git add -f`.
+5. ~~**`--save` flag requires an explicit PATH.**~~ **FIXED.** `--save` is now a `metavar="PATH"` argument; argparse enforces the path is supplied.
+6. ~~**Ignored-vs-tracked asset rules are inconsistent.**~~ **FIXED.** `.gitignore` now has `!CLAUDE.md` and `!assets/*.gif` force-track rules; tracked GIFs update normally without `git add -f`.
+7. **TrackManager not using DroneEKF.** `TrackManager` still instantiates `DroneKalmanFilter`. `DroneEKF` is a drop-in replacement but has not been swapped in yet.
+8. **Benchmark 3-sensor result is misleading.** RF signals carry no position information and are ignored by TrackManager. The 3-sensor RMSE is therefore identical (or very close) to 2-sensor, which may suggest RF adds no value — but the real conclusion is that RF is not wired in.
+9. **Phase 2 demo GIF is stale.** `assets/phase2_fusion_demo.gif` was recorded before the ghost-track fix; it shows ~30 tracks instead of ~25. Needs to be re-recorded.
+
+---
+
+## Architecture Decisions
+
+### EKF
+- State vector: `[x, y, vx, vy, omega]` — 5D Constant Turn Rate (CTR) model
+- Nonlinear state transition `f(x)` with analytical 5×5 Jacobian (`_F_jacobian` in `fusion/ekf.py`)
+- Measurement function `h(x) = H @ x` is linear — Joseph-form Kalman update is correct and unchanged
+- Uses `filterpy.kalman.ExtendedKalmanFilter` internally; `predict()` bypasses filterpy's `F`-based step and applies `f(x)` directly
+- **NOT yet integrated into TrackManager** — `TrackManager` still uses `DroneKalmanFilter` (4-state, constant velocity)
+
+### Track Manager
+- Association: Hungarian algorithm via `scipy.optimize.linear_sum_assignment` (global optimum, not greedy)
+- Gate threshold: `ASSOC_THRESHOLD = 15.0` units (Euclidean); forbidden cells set to `1e9` before solving
+- Only radar spawns new tracks; optical only updates existing tracks (eliminates false-positive ghost tracks)
+- `MIN_AGE = 3` frames before a track appears in output; `MAX_MISSED = 8` frames before pruning
+- `confirmed_tracks()` returns the last-computed confirmed list without re-running a step
 
 ---
 
@@ -130,8 +174,15 @@ v0.1 — Phase 1 complete. env_check passes (Python 3.13.11, NumPy 2.4.4, Matplo
 ## Last Working Demo
 `assets/phase2_fusion_demo.gif` — 150 frames, 15 fps, 1200×600 px, 2.1 MB. Two-subplot animation: raw sensor detections (left) vs. fused Kalman tracks (right). 25 drones, flock behavior.
 
-## Next Task
-Phase 2 — EKF (`fusion/ekf.py`) and fusion error benchmark (1 vs 2 vs 3 sensors)
+## What to Work on Next
+
+1. **Integrate DroneEKF into TrackManager** — swap `DroneKalmanFilter` for `DroneEKF` in `fusion/track_manager.py` (`_spawn` method)
+2. **Fix benchmark RF claim or wire RF into tracker** — either document that RF adds no RMSE benefit (expected), or implement an RF-assisted position prior
+3. **Fix headless `--no-display` animation warnings** — `FuncAnimation` may still emit matplotlib warnings in Agg mode; investigate and silence for clean CI output
+4. **Fix swarm rectangular bounds + attack empty-alive guard** — `_spawn_drones` uses `area[0]` for both axes; `_attack_behavior` should guard against an empty alive list
+5. **Refresh Phase 2 demo GIF** — re-record `assets/phase2_fusion_demo.gif` showing ~25 confirmed tracks (current GIF shows ~30, pre-fix)
+6. **Verify or create `PHASE1_CHECKLIST.md`** — confirm it exists and reflects actual Phase 1 completion state
+7. **Apply v0.2 tag and push**
 
 ---
 
@@ -160,7 +211,7 @@ Phase 2 — EKF (`fusion/ekf.py`) and fusion error benchmark (1 vs 2 vs 3 sensor
   - R matrices matched to sensor noise σ values in `sensors/radar.py` / `sensors/optical.py`
   - Optical update uses raw Kalman equations (not filterpy's kf.update) — filterpy validates dim_z at call time and rejects shape (2,) when dim_z=4
 - [x] Multi-target track manager — `fusion/track_manager.py`
-  - `ASSOC_THRESHOLD = 15.0` m (Euclidean, greedy nearest-neighbour) — tuning param
+  - `ASSOC_THRESHOLD = 15.0` m (Euclidean, Hungarian algorithm via `scipy.optimize.linear_sum_assignment`; forbidden assignments set to `1e9`) — tuning param
   - `MAX_MISSED = 8` frames before a track is pruned — tuning param
   - `MIN_AGE = 3` frames before a track appears in output — kills transient ghosts — tuning param
   - **Only radar spawns new tracks; optical only updates existing tracks.**
@@ -170,17 +221,28 @@ Phase 2 — EKF (`fusion/ekf.py`) and fusion error benchmark (1 vs 2 vs 3 sensor
   - RF accepted in signature but unused — signal strength carries no position info
 - [x] Fusion pipeline (sensors → TrackManager) — `fusion/fusion_pipeline.py`
   - Derives `area` from `swarm.drones[0].bounds` to fix OpticalSensor FP placement
+  - `n_sensors` param: 1=radar only, 2=+optical, 3=+RF
+  - `step()` returns raw detection dict `{"radar", "optical", "rf"}`; `confirmed_tracks()` delegates to `track_manager`
 - [x] Side-by-side visualisation — `fusion/run_fusion.py`
   - 2 subplots, 25 drones, 15 fps, 150 frames (all within hardware limits)
   - RF shown as text count (not dots) — no spatial position output from RFSensor
   - `--save PATH` writes GIF via PillowWriter; `--save` alone requires explicit PATH
-  - `run_fusion.py` wires sensors + TrackManager directly (does not use FusionPipeline class)
-- [x] EKF stub — `fusion/ekf.py`
-  - `DroneEKF` class, identical interface to `DroneKalmanFilter` (drop-in swap)
-  - Currently uses linear constant-velocity model — reduces to standard KF
-  - TODO: replace with constant-turn model (adds turn-rate state `omega`, trig f(x)) in Phase 2 week 2
-  - predict() sets F Jacobian fresh each call so nonlinear f(x) can be swapped in without restructuring
-- [x] Benchmark skeleton — `benchmarks/fusion_error.py`
-  - `benchmark_sensor_count(n_sensors: int) -> float` exists, returns `0.0` placeholder
-  - TODO: implement RMSE between fused tracks and ground truth; compare n_sensors = 1, 2, 3
+  - `--frames N` and `--no-display` flags for CI and headless use
+  - Uses `FusionPipeline` for orchestration
+- [x] EKF — `fusion/ekf.py`
+  - `DroneEKF` class, drop-in interface identical to `DroneKalmanFilter`
+  - State vector: `[x, y, vx, vy, omega]` — 5D Constant Turn Rate (CTR) model
+  - Nonlinear `f(x)` with analytical 5×5 Jacobian; uses `filterpy.kalman.ExtendedKalmanFilter` internally
+  - **Not yet wired into TrackManager** — `TrackManager` still instantiates `DroneKalmanFilter`
+- [x] Benchmark — `benchmarks/fusion_error.py`
+  - Real RMSE implementation: Hungarian matching of confirmed tracks to ground truth over 200 steps
+  - Compares n_sensors = 1 (radar), 2 (+optical), 3 (+RF)
+  - **Caveat: RF carries no position info and is not wired into TrackManager** — 3-sensor result is misleadingly close to 2-sensor
 - [ ] git tag v0.2
+
+### Phase 2 — What is NOT done
+
+- **TrackManager still uses `DroneKalmanFilter`** — `DroneEKF` is implemented but not yet plugged in; swap is a one-line change in `track_manager.py`
+- **RF not wired into TrackManager** — RF signals carry no position information; the 3-sensor benchmark result is misleading and should be documented or fixed
+- **Phase 2 demo GIF is stale** — `assets/phase2_fusion_demo.gif` was recorded when track count was ~30; should show ~25 after the ghost-track fix
+- **v0.2 tag not yet applied**

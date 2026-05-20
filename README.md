@@ -2,7 +2,7 @@
 
 > Real-time multi-sensor fusion and autonomous swarm threat classification system.
 
-[![Phase](https://img.shields.io/badge/Phase-1%20Complete-brightgreen)]()
+[![Phase](https://img.shields.io/badge/Phase-2%20In%20Progress-yellow)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-green)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow)]()
 
@@ -71,7 +71,7 @@ python simulator/run_simulation.py --behavior flock --save assets/my_run.gif
 
 **Radar** (`sensors/radar.py`) — returns an `(n_detected, 4)` array of `[x, y, vx, vy]` measurements per alive drone. Position noise is Gaussian (σ = 1.0 m) and velocity noise is Gaussian (σ = 0.3 m/s). Each detection is independently dropped with probability 0.05, simulating a realistic miss rate.
 
-**Optical** (`sensors/optical.py`) — returns a list of bounding-box dicts `{drone_id, bbox: [x, y, w, h], confidence}`. Drone positions are perturbed by Gaussian noise (σ = 2.0 m) before the box is centred on them. True detections are dropped with probability 0.10; false-positive boxes are added at a rate of Binomial(n\_alive, 0.10) per frame, placed uniformly across the canvas. False positives carry `drone_id = None` and lower confidence scores (0.1–0.5).
+**Optical** (`sensors/optical.py`) — returns a list of bounding-box dicts `{drone_id, bbox: [x, y, w, h], confidence}`. Drone positions are perturbed by Gaussian noise (σ = 2.0 m) before the box is centred on them. True detections are dropped with probability 0.10; false-positive boxes are added at a rate of Binomial(n\_alive, 0.10) per frame, placed uniformly across the canvas. False positives carry `drone_id = None` and lower confidence scores (0.1–0.5). OpticalSensor defaults to the swarm arena size (100×100) and clips all bounding boxes to arena bounds.
 
 **RF** (`sensors/rf.py`) — returns an `(n_alive,)` array of signal-strength readings. The physical model is `signal = max_signal / distance_to_origin²` with additive Gaussian noise (σ = 0.5). Each reading is independently zeroed with probability 0.15 to simulate transmitter dropout. Signals for distant drones can go slightly negative (noise floor effect — intentional).
 
@@ -82,7 +82,7 @@ python simulator/run_simulation.py --behavior flock --save assets/my_run.gif
 | Phase | Focus | Status |
 |-------|-------|--------|
 | Phase 1 (Wk 1–6) | Swarm Simulator + Sensor Models | ✅ Complete |
-| Phase 2 (Wk 7–12) | Kalman Filter Sensor Fusion | ⏳ Planned |
+| Phase 2 (Wk 7–12) | Kalman Filter Sensor Fusion | 🔧 In Progress (~70%) |
 | Phase 3 (Wk 13–20) | PyTorch Swarm Classification | ⏳ Planned |
 | Phase 4 (Wk 21–28) | HPC Layer + Kafka + C2 Dashboard | ⏳ Planned |
 
@@ -108,20 +108,13 @@ python simulator/run_simulation.py --behavior flock --save assets/my_run.gif
 
 ```
 SwarmSentinel/
-├── simulator/        # Swarm physics engine
-├── sensors/          # Radar, optical, RF simulation modules
-├── fusion/           # Kalman filter fusion pipeline
-├── ml/               # PyTorch classification model + training
-├── c2/               # FastAPI backend + React dashboard
-│   ├── backend/
-│   └── frontend/
-├── hpc/              # MPI distributed components + benchmarks
-├── benchmarks/       # Performance and latency tests
-├── docs/             # MkDocs documentation site
-├── tests/            # Unit and integration tests
-├── docker-compose.yml
-├── requirements.txt
-└── ROADMAP.md
+├── simulator/        # Swarm physics engine (Drone, Swarm, Boids behaviors)
+├── sensors/          # Radar, optical, RF sensor models
+├── fusion/           # Kalman filter + EKF pipeline, TrackManager
+├── benchmarks/       # Fusion accuracy benchmarks (RMSE vs sensor count)
+├── assets/           # Demo GIFs
+├── docs/             # Project documentation
+└── tests/            # Environment check and CLI smoke tests
 ```
 
 ---
@@ -134,6 +127,15 @@ cd SwarmSentinel
 pip install -r requirements.txt
 python simulator/run_simulation.py
 ```
+
+---
+
+## Known Issues
+
+- **EKF is optional, not default.** `TrackManager` uses `DroneKalmanFilter` (4-state CV) by default. Pass `use_ekf=True` to `FusionPipeline` or `TrackManager` to enable the 5-state CTR `DroneEKF`.
+- **Benchmark compares KF vs EKF, not sensor count.** The three configs in `benchmarks/fusion_error.py` are: radar-only KF, radar+optical KF, radar+optical EKF. RF is excluded because `TrackManager` does not use signal strength for spatial association.
+- **Swarm bounds model is square-only.** `Drone.bounds` is a `(w, h)` tuple and wrapping is per-axis, but `_spawn_drones` in `swarm.py` uses `area[0]` for both axes. Keep `spawn_area` square (e.g. `(100, 100)`).
+- **Detailed Phase 1 completion state:** see [`docs/PHASE1_CHECKLIST.md`](docs/PHASE1_CHECKLIST.md).
 
 ---
 
