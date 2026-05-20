@@ -1,0 +1,17 @@
+Confusion Matrix  (rows = Actual, cols = Predicted)
+
+                individual       swarm      attack
+              ────────────────────────────────────
+  individual │         200           0           0
+       swarm │           0         130          70
+      attack │           0          12         188
+
+Class         Precision  Recall      F1
+────────────────────────────────────────
+individual        1.000   1.000   1.000
+swarm             0.915   0.650   0.760
+attack            0.729   0.940   0.821
+────────────────────────────────────────
+macro avg         0.881   0.863   0.860
+
+Overall accuracy : 86.3%  (518/600)
